@@ -3,27 +3,22 @@ import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  LayoutDashboard, Users, FileText, Target, Link2, Package,
-  DollarSign, Upload, ClipboardCheck, CheckCircle2, Bell, History,
-  Settings, Search, ChevronDown, Menu, LogOut, BarChart3, X
+  LayoutDashboard, Users, FileText,
+  DollarSign, Upload, Bell, History,
+  Settings, Search, Menu, LogOut, BarChart3
 } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 
 const navItems = [
   { href: "/", icon: LayoutDashboard, label: "Tổng quan" },
+  { divider: true, label: "DỮ LIỆU" },
+  { href: "/import", icon: Upload, label: "Import CSV" },
+  { href: "/reports", icon: BarChart3, label: "Báo cáo P&L" },
   { divider: true, label: "QUẢN LÝ" },
   { href: "/employees", icon: Users, label: "Nhân viên" },
   { href: "/pages", icon: FileText, label: "Pages" },
-  { href: "/campaigns", icon: Target, label: "Campaigns" },
-  { href: "/subids", icon: Link2, label: "SubIDs" },
-  { href: "/products", icon: Package, label: "Sản phẩm" },
-  { divider: true, label: "TÀI CHÍNH" },
   { href: "/expenses", icon: DollarSign, label: "Chi phí" },
-  { href: "/import", icon: Upload, label: "Import Shopee" },
-  { href: "/daily-reports", icon: ClipboardCheck, label: "Đối chiếu" },
-  { href: "/approvals", icon: CheckCircle2, label: "Duyệt", badge: 3 },
   { divider: true, label: "HỆ THỐNG" },
-  { href: "/reports", icon: BarChart3, label: "Báo cáo" },
   { href: "/notifications", icon: Bell, label: "Thông báo" },
   { href: "/logs", icon: History, label: "Lịch sử" },
   { href: "/settings", icon: Settings, label: "Cài đặt" },
@@ -100,11 +95,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <span className={`whitespace-nowrap ${active ? "font-semibold" : ""}`}>
                     {item.label}
                   </span>
-                  {item.badge && (
-                    <span className="ml-auto bg-[var(--accent)] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
-                      {item.badge}
-                    </span>
-                  )}
                 </>
               )}
             </Link>
