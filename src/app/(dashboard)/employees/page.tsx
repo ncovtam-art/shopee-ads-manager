@@ -35,33 +35,57 @@ export default function EmployeesPage() {
     if (!form.email || !form.name || !form.password) {
       setMsg("Điền đầy đủ tên, email và mật khẩu"); return;
     }
+    if (form.password.length < 6) {
+      setMsg("Mật khẩu phải tối thiểu 6 ký tự"); return;
+    }
     setSaving(true);
     setMsg("");
 
-    const { data, error } = await supabase.auth.signUp({
-      email: form.email,
-      password: form.password,
-      options: { data: { name: form.name, role: form.role } }
-    });
+    try {
+      // Save current session
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
 
-    if (error) {
-      setMsg("Lỗi: " + error.message);
-      setSaving(false);
-      return;
-    }
+      const { data, error } = await supabase.auth.signUp({
+        email: form.email,
+        password: form.password,
+        options: { data: { name: form.name, role: form.role } }
+      });
 
-    if (data.user) {
+      if (error) {
+        setMsg("Lỗi: " + (error.message || JSON.stringify(error)));
+        setSaving(false);
+        return;
+      }
+
+      if (!data.user) {
+        setMsg("Không tạo được user. Kiểm tra email đã tồn tại chưa, hoặc tắt Email Confirmation trong Supabase Auth Settings.");
+        setSaving(false);
+        return;
+      }
+
+      // Update profile
       await supabase.from("profiles").update({
         name: form.name,
         phone: form.phone || null,
         role: form.role as any,
       }).eq("id", data.user.id);
-    }
 
-    setForm({ name: "", email: "", phone: "", role: "EMPLOYEE", password: "" });
-    setShowAdd(false);
+      // Restore admin session (signUp may have switched to new user)
+      if (currentSession) {
+        await supabase.auth.setSession({
+          access_token: currentSession.access_token,
+          refresh_token: currentSession.refresh_token,
+        });
+      }
+
+      setMsg("✅ Tạo nhân viên thành công!");
+      setForm({ name: "", email: "", phone: "", role: "EMPLOYEE", password: "" });
+      setTimeout(() => { setShowAdd(false); setMsg(""); }, 1500);
+      fetchEmployees();
+    } catch (e: any) {
+      setMsg("Lỗi: " + (e?.message || JSON.stringify(e)));
+    }
     setSaving(false);
-    fetchEmployees();
   };
 
   const toggleStatus = async (id: string, current: string) => {
@@ -190,7 +214,7 @@ export default function EmployeesPage() {
                   <option value="ADMIN">Admin</option>
                 </select>
               </div>
-              {msg && <div className="text-sm text-[var(--danger)] bg-red-500/10 rounded-lg px-3 py-2">{msg}</div>}
+              {msg && <div className={`text-sm rounded-lg px-3 py-2 ${msg.includes("✅") ? "text-green-400 bg-green-500/10" : "text-[var(--danger)] bg-red-500/10"}`}>{msg}</div>}
               <button onClick={handleAdd} disabled={saving} className="w-full py-2.5 bg-[var(--accent)] text-white rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity">
                 {saving ? "Đang tạo..." : "Tạo nhân viên"}
               </button>

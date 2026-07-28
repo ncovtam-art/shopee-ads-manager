@@ -549,27 +549,53 @@ export default function ImportPage() {
       {/* ══════════ HISTORY ══════════ */}
       {!hasData && batches.length > 0 && (
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-[var(--border)]">
+          <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
             <span className="text-sm font-semibold">Lịch sử import</span>
+            <span className="text-xs text-[var(--muted-foreground)]">{batches.length} lần import</span>
           </div>
           {batches.map((b) => (
-            <div key={b.id} className="px-4 py-3 flex items-center gap-4 border-b border-[var(--border)] text-sm">
-              <span className="font-mono text-xs text-[var(--muted-foreground)]">#{b.id.slice(0, 8)}</span>
-              <span className="font-mono text-xs text-[var(--muted-foreground)]">
-                {new Date(b.created_at).toLocaleDateString("vi-VN")}
-              </span>
-              <div className="flex items-center gap-1.5 flex-1">
+            <div key={b.id} className="px-4 py-3 flex items-center gap-3 border-b border-[var(--border)] text-sm hover:bg-[var(--muted)] transition-colors">
+              <div className="flex items-center gap-1.5">
                 {b.type === "fb_ads" ? (
                   <Megaphone size={14} className="text-[#1877f2]" />
                 ) : (
                   <ShoppingBag size={14} className="text-[#ee4d2d]" />
                 )}
-                <span>{b.filename}</span>
-                <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)]">
-                  {b.type === "fb_ads" ? "FB Ads" : "Shopee"}
-                </span>
               </div>
-              <span className="text-[var(--muted-foreground)]">{b.total_rows} dòng</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium truncate">{b.filename}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)] shrink-0">
+                    {b.type === "fb_ads" ? "FB Ads" : "Shopee"}
+                  </span>
+                </div>
+                <div className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                  {new Date(b.created_at).toLocaleString("vi-VN")} · {b.total_rows} dòng
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  if (!confirm(`Xoá import "${b.filename}" (${b.total_rows} dòng)?\n\nDữ liệu đã import sẽ bị xoá hoàn toàn.`)) return;
+                  setMsg("");
+                  // Delete data first, then batch (cascade should handle, but be explicit)
+                  if (b.type === "fb_ads") {
+                    await supabase.from("fb_ads_data").delete().eq("batch_id", b.id);
+                  } else {
+                    await supabase.from("shopee_affiliate_data").delete().eq("batch_id", b.id);
+                  }
+                  const { error } = await supabase.from("import_batches").delete().eq("id", b.id);
+                  if (error) {
+                    setMsg("Lỗi xoá: " + error.message);
+                  } else {
+                    setMsg(`✅ Đã xoá import "${b.filename}"`);
+                    fetchBatches();
+                  }
+                }}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                title="Xoá import này"
+              >
+                <Trash2 size={13} /> Xoá
+              </button>
             </div>
           ))}
         </div>
