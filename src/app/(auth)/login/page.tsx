@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 
 export default function LoginPage() {
@@ -54,7 +55,10 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-        <div className="text-center mt-5 space-y-0.5">
+        <p className="text-center text-xs text-[var(--muted-foreground)] mt-4">
+          Chưa có tài khoản? <Link href="/register" className="text-[var(--accent)] font-medium hover:underline">Đăng ký</Link>
+        </p>
+        <div className="text-center mt-4 space-y-0.5">
           <p className="text-[11px] text-[var(--muted-foreground)]">Được phát triển bởi <span className="font-medium text-[var(--foreground)]">Minh Tâm</span></p>
           <p className="text-[11px] text-[var(--muted-foreground)]">Hỗ trợ kỹ thuật: 0877 260 675</p>
         </div>
