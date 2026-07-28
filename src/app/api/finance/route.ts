@@ -16,18 +16,28 @@ export async function GET(req: NextRequest) {
     const pageId = searchParams.get("pageId");
     const type = searchParams.get("type") || "summary"; // summary | by-campaign | by-page | by-date
 
-    // FB Ads
+    // FB Ads — fetch all, filter in JS to handle NULL report_date
     let fbQuery = supabase.from("fb_ads_data").select("campaign_name, ad_spend, page_id, report_date, created_at");
-    if (dateFrom) fbQuery = fbQuery.gte("report_date", dateFrom);
-    if (dateTo) fbQuery = fbQuery.lte("report_date", dateTo);
     if (pageId) fbQuery = fbQuery.eq("page_id", pageId);
-    const { data: fbRaw } = await fbQuery;
+    const { data: fbAll } = await fbQuery;
 
-    // Shopee Affiliate
-    let shopeeQuery = supabase.from("shopee_affiliate_data").select("sub_id1, sub_id2, order_value, net_commission, report_date, created_at, channel");
-    if (dateFrom) shopeeQuery = shopeeQuery.gte("report_date", dateFrom);
-    if (dateTo) shopeeQuery = shopeeQuery.lte("report_date", dateTo);
-    const { data: shopeeRaw } = await shopeeQuery;
+    // Filter by date (use report_date if exists, else created_at)
+    const fbRaw = (fbAll || []).filter(r => {
+      const d = r.report_date || (r.created_at ? r.created_at.split("T")[0] : null);
+      if (dateFrom && d && d < dateFrom) return false;
+      if (dateTo && d && d > dateTo) return false;
+      return true;
+    });
+
+    // Shopee Affiliate — same approach
+    const { data: shopeeAll } = await supabase.from("shopee_affiliate_data").select("sub_id1, sub_id2, order_value, net_commission, report_date, created_at, channel");
+
+    const shopeeRaw = (shopeeAll || []).filter(r => {
+      const d = r.report_date || (r.created_at ? r.created_at.split("T")[0] : null);
+      if (dateFrom && d && d < dateFrom) return false;
+      if (dateTo && d && d > dateTo) return false;
+      return true;
+    });
 
     // Aggregate based on type
     if (type === "summary") {
