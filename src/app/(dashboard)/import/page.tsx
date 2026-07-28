@@ -55,6 +55,24 @@ export default function ImportPage() {
     setMsg("");
   };
 
+  // ── Helper: find column by partial match ──
+  const findCol = (row: any, patterns: string[]): string => {
+    const keys = Object.keys(row);
+    for (const pattern of patterns) {
+      const p = pattern.toLowerCase();
+      const found = keys.find(k => k.toLowerCase().includes(p));
+      if (found && row[found] !== undefined && row[found] !== "") return String(row[found]);
+    }
+    return "";
+  };
+
+  const parseNum = (val: string): number => {
+    if (!val) return 0;
+    const cleaned = val.replace(/,/g, "").trim();
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? 0 : n;
+  };
+
   // ── Parse FB Ads CSV ──
   const parseFbCsv = (file: File) => {
     setFileName(file.name);
@@ -63,20 +81,24 @@ export default function ImportPage() {
       header: true,
       skipEmptyLines: true,
       complete: (r) => {
+        if (!r.data || r.data.length === 0) {
+          setMsg("File trống hoặc không đọc được");
+          return;
+        }
+        console.log("FB CSV columns:", Object.keys(r.data[0] as any));
+
         const rows: FbRow[] = r.data
           .map((row: any, i: number) => {
-            const campaign =
-              row["Tên chiến dịch"] ||
-              row["Campaign name"] ||
-              row["campaign_name"] ||
-              "";
-            const spend = parseFloat(
-              (row["Số tiền đã chi tiêu (VND)"] ||
-               row["Amount spent (VND)"] ||
-               row["amount_spent"] ||
-               "0"
-              ).toString().replace(/[,.]/g, (m: string) => m === "," ? "" : m)
-            );
+            const campaign = findCol(row, [
+              "Tên chiến dịch",
+              "Campaign name",
+              "campaign_name",
+            ]);
+            const spend = parseNum(findCol(row, [
+              "Số tiền đã chi tiêu",
+              "Amount spent",
+              "amount_spent",
+            ]));
             return { id: i, campaign_name: campaign.trim(), ad_spend: spend, selected: true };
           })
           .filter((r: FbRow) => r.campaign_name);
@@ -104,27 +126,28 @@ export default function ImportPage() {
       header: true,
       skipEmptyLines: true,
       complete: (r) => {
+        if (!r.data || r.data.length === 0) {
+          setMsg("File trống hoặc không đọc được");
+          return;
+        }
+        // Debug: log first row keys
+        console.log("CSV columns:", Object.keys(r.data[0] as any));
+
         const rows: ShopeeRow[] = r.data
           .map((row: any, i: number) => {
-            const sub1 =
-              row["Sub_id1"] || row["sub_id1"] || row["Sub ID 1"] || "";
-            const sub2 =
-              row["Sub_id2"] || row["sub_id2"] || row["Sub ID 2"] || "";
-            const orderVal = parseFloat(
-              (row["Giá trị đơn hàng (₫)"] ||
-               row["Order Value"] ||
-               row["order_value"] ||
-               "0"
-              ).toString().replace(/[,.]/g, (m: string) => m === "," ? "" : m)
-            );
-            const commission = parseFloat(
-              (row["Hoa hồng ròng tiếp thị liên kết(₫)"] ||
-               row["Hoa hồng ròng tiếp thị liên kết (₫)"] ||
-               row["Net Commission"] ||
-               row["net_commission"] ||
-               "0"
-              ).toString().replace(/[,.]/g, (m: string) => m === "," ? "" : m)
-            );
+            const sub1 = findCol(row, ["Sub_id1", "sub_id1", "Sub ID 1"]);
+            const sub2 = findCol(row, ["Sub_id2", "sub_id2", "Sub ID 2"]);
+            const orderVal = parseNum(findCol(row, [
+              "Giá trị đơn hàng",
+              "Order Value",
+              "order_value",
+            ]));
+            const commission = parseNum(findCol(row, [
+              "Hoa hồng ròng tiếp thị liên kết",
+              "hoa hồng ròng",
+              "Net Commission",
+              "net_commission",
+            ]));
             return {
               id: i,
               sub_id1: sub1.trim(),
@@ -135,6 +158,10 @@ export default function ImportPage() {
             };
           })
           .filter((r: ShopeeRow) => r.sub_id2 || r.order_value > 0 || r.net_commission > 0);
+
+        if (rows.length === 0) {
+          setMsg("Không tìm thấy dữ liệu hợp lệ. Kiểm tra lại file CSV.");
+        }
         setShopeeRows(rows);
       },
     });
