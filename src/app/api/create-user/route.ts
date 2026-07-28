@@ -2,14 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password, name, phone, role } = await req.json();
+    const { email, password, name, phone, role, debug } = await req.json();
+
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+
+    // Debug mode - check config without creating user
+    if (debug) {
+      return NextResponse.json({
+        hasUrl: !!supabaseUrl,
+        urlPrefix: supabaseUrl.slice(0, 30),
+        hasKey: !!serviceKey,
+        keyPrefix: serviceKey.slice(0, 10) + "...",
+        keyLength: serviceKey.length,
+      });
+    }
 
     if (!email || !password || !name) {
       return NextResponse.json({ error: "Thiếu email, password hoặc tên" }, { status: 400 });
     }
-
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
     if (!serviceKey || !supabaseUrl) {
       return NextResponse.json(
@@ -43,7 +54,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Update profile with name, phone, role
+    // Update profile
     if (authData.id) {
       await fetch(`${supabaseUrl}/rest/v1/profiles?id=eq.${authData.id}`, {
         method: "PATCH",
