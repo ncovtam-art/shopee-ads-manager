@@ -1,118 +1,58 @@
 "use client";
 import { useState, useEffect } from "react";
-import {
-  TrendingUp, DollarSign, Zap, Star, BarChart3, ShieldCheck,
-  AlertTriangle, ArrowUpRight, ArrowDownRight, Upload,
-  Megaphone, ShoppingBag
-} from "lucide-react";
-import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell
-} from "recharts";
+import { DollarSign, TrendingUp, Zap, Star, BarChart3, ShieldCheck, ShoppingBag, AlertTriangle, ArrowUpRight, ArrowDownRight, Upload, Megaphone } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from "recharts";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
-import { formatMoney } from "@/lib/utils";
+import { formatCompact, calculateMetrics, profitStatus, profitColor } from "@/lib/finance";
 
-type CampaignSummary = {
-  name: string;
-  adSpend: number;
-  commission: number;
-  profit: number;
-};
+type CampaignRow = { campaignName: string; pageCode: string; adSpend: number; gmv: number; commission: number; orders: number; profit: number; roi: number|null; roas: number|null };
 
 export default function DashboardPage() {
   const supabase = createClient();
-  const [metrics, setMetrics] = useState({
-    totalAdSpend: 0, totalOrderValue: 0, totalCommission: 0,
-    totalProfit: 0, totalOrders: 0, campaignCount: 0,
-    profitCount: 0, lossCount: 0,
-    fbBatches: 0, shopeeBatches: 0,
-  });
-  const [topCampaigns, setTopCampaigns] = useState<CampaignSummary[]>([]);
+  const [period, setPeriod] = useState("30d");
+  const [summary, setSummary] = useState({ adSpend:0, gmv:0, commission:0, orders:0, profit:0, roi:null as number|null, commRoas:null as number|null, gmvRoas:null as number|null });
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [fbBatches, setFbBatches] = useState(0);
+  const [shopeeBatches, setShopeeBatches] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchAll(); }, [period]);
 
   const fetchAll = async () => {
     setLoading(true);
+    const days = period === "7d" ? 7 : period === "30d" ? 30 : 90;
+    const since = new Date(); since.setDate(since.getDate() - days);
+    const dateFrom = since.toISOString().split("T")[0];
 
-    // FB Ads
-    const { data: fbRaw } = await supabase
-      .from("fb_ads_data").select("campaign_name, ad_spend");
-    const fbMap = new Map<string, number>();
-    fbRaw?.forEach(r => {
-      fbMap.set(r.campaign_name, (fbMap.get(r.campaign_name) || 0) + Number(r.ad_spend));
-    });
+    // Fetch from API
+    const [summaryRes, campaignRes] = await Promise.all([
+      fetch(`/api/finance?type=summary&dateFrom=${dateFrom}`).then(r => r.json()).catch(() => ({ data: {} })),
+      fetch(`/api/finance?type=by-campaign&dateFrom=${dateFrom}`).then(r => r.json()).catch(() => ({ data: [] })),
+    ]);
+    if (summaryRes.data) setSummary(summaryRes.data);
+    if (campaignRes.data) setCampaigns(campaignRes.data.slice(0, 10));
 
-    // Shopee Affiliate
-    const { data: shopeeRaw } = await supabase
-      .from("shopee_affiliate_data").select("sub_id2, order_value, net_commission");
-    const shopeeMap = new Map<string, { orderVal: number; commission: number; orders: number }>();
-    shopeeRaw?.forEach(r => {
-      const key = r.sub_id2 || "__none__";
-      const ex = shopeeMap.get(key) || { orderVal: 0, commission: 0, orders: 0 };
-      ex.orderVal += Number(r.order_value);
-      ex.commission += Number(r.net_commission);
-      ex.orders += 1;
-      shopeeMap.set(key, ex);
-    });
-
-    // Merge
-    const allKeys = new Set([...fbMap.keys(), ...shopeeMap.keys()]);
-    allKeys.delete("__none__");
-    let totalAdSpend = 0, totalOrderValue = 0, totalCommission = 0, totalOrders = 0;
-    let profitCount = 0, lossCount = 0;
-    const campaigns: CampaignSummary[] = [];
-
-    allKeys.forEach(name => {
-      const spend = fbMap.get(name) || 0;
-      const shopee = shopeeMap.get(name) || { orderVal: 0, commission: 0, orders: 0 };
-      const profit = shopee.commission - spend;
-      totalAdSpend += spend;
-      totalOrderValue += shopee.orderVal;
-      totalCommission += shopee.commission;
-      totalOrders += shopee.orders;
-      if (profit > 0) profitCount++; else if (profit < 0) lossCount++;
-      campaigns.push({ name, adSpend: spend, commission: shopee.commission, profit });
-    });
-
-    // Import batch counts
-    const { count: fbCount } = await supabase.from("import_batches")
-      .select("id", { count: "exact" }).eq("type", "fb_ads");
-    const { count: shopeeCount } = await supabase.from("import_batches")
-      .select("id", { count: "exact" }).eq("type", "shopee_affiliate");
-
-    campaigns.sort((a, b) => b.profit - a.profit);
-
-    setMetrics({
-      totalAdSpend, totalOrderValue, totalCommission,
-      totalProfit: totalCommission - totalAdSpend,
-      totalOrders, campaignCount: allKeys.size,
-      profitCount, lossCount,
-      fbBatches: fbCount || 0, shopeeBatches: shopeeCount || 0,
-    });
-    setTopCampaigns(campaigns.slice(0, 10));
+    const { count: fb } = await supabase.from("import_batches").select("id", { count: "exact" }).eq("type", "fb_ads");
+    const { count: sp } = await supabase.from("import_batches").select("id", { count: "exact" }).eq("type", "shopee_affiliate");
+    setFbBatches(fb || 0);
+    setShopeeBatches(sp || 0);
     setLoading(false);
   };
 
-  const roi = metrics.totalAdSpend > 0
-    ? Math.round(((metrics.totalCommission - metrics.totalAdSpend) / metrics.totalAdSpend) * 1000) / 10
-    : 0;
-
-  const roas = metrics.totalAdSpend > 0
-    ? (metrics.totalOrderValue / metrics.totalAdSpend).toFixed(2)
-    : "0";
+  const profitCampaigns = campaigns.filter(c => c.profit > 0).length;
+  const lossCampaigns = campaigns.filter(c => c.profit < 0).length;
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     return (
-      <div className="bg-[var(--muted)] border border-[var(--border)] rounded-lg px-4 py-3 text-xs shadow-xl">
-        <div className="text-[var(--muted-foreground)] font-semibold mb-2">{label}</div>
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-md px-3 py-2 text-xs shadow-lg">
+        <div className="text-[var(--muted-foreground)] font-medium mb-1">{label}</div>
         {payload.map((p: any, i: number) => (
-          <div key={i} className="flex items-center gap-2 mb-0.5">
-            <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <div key={i} className="flex items-center gap-1.5 mb-0.5">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: p.color }} />
             <span className="text-[var(--muted-foreground)]">{p.name}:</span>
-            <span className="font-mono font-semibold">{formatMoney(p.value)}</span>
+            <span className="font-mono font-semibold">{formatCompact(p.value)}</span>
           </div>
         ))}
       </div>
@@ -120,30 +60,16 @@ export default function DashboardPage() {
   };
 
   // No data state
-  if (!loading && metrics.campaignCount === 0 && metrics.fbBatches === 0 && metrics.shopeeBatches === 0) {
+  if (!loading && summary.adSpend === 0 && summary.commission === 0 && fbBatches === 0 && shopeeBatches === 0) {
     return (
       <div>
-        <div className="mb-6">
-          <h1 className="text-xl font-bold tracking-tight">Tổng quan</h1>
-          <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
-            {new Date().toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-          </p>
-        </div>
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-12 text-center">
-          <div className="w-20 h-20 rounded-2xl bg-[rgba(238,77,45,0.1)] flex items-center justify-center mx-auto mb-5">
-            <Upload size={36} className="text-[var(--accent)]" />
-          </div>
-          <h2 className="text-lg font-semibold mb-2">Chưa có dữ liệu</h2>
-          <p className="text-sm text-[var(--muted-foreground)] max-w-md mx-auto mb-6">
-            Bắt đầu bằng cách import file CSV từ Facebook Ads và Shopee Affiliate.
-            Hệ thống sẽ tự động ghép theo tên chiến dịch.
-          </p>
-          <Link
-            href="/import"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[var(--accent)] text-white text-sm font-semibold hover:opacity-90"
-          >
-            <Upload size={16} /> Import dữ liệu
-          </Link>
+        <h1 className="text-lg font-bold mb-1">Dashboard</h1>
+        <p className="text-xs text-[var(--muted-foreground)] mb-6">{new Date().toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-10 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-[rgba(238,77,45,0.1)] flex items-center justify-center mx-auto mb-4"><Upload size={32} className="text-[var(--accent)]" /></div>
+          <h2 className="text-base font-semibold mb-1">Chưa có dữ liệu</h2>
+          <p className="text-sm text-[var(--muted-foreground)] max-w-sm mx-auto mb-5">Import file CSV từ Facebook Ads và Shopee Affiliate để bắt đầu.</p>
+          <Link href="/import" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm font-semibold hover:opacity-90"><Upload size={14} /> Import dữ liệu</Link>
         </div>
       </div>
     );
@@ -151,80 +77,79 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Tổng quan</h1>
-          <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
-            {new Date().toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-          </p>
+          <h1 className="text-lg font-bold">Dashboard</h1>
+          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{new Date().toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] bg-[var(--card)] border border-[var(--border)] px-3 py-1.5 rounded-lg">
-            <Megaphone size={12} className="text-[#1877f2]" /> {metrics.fbBatches} lần
+        <div className="flex items-center gap-1.5">
+          <div className="flex gap-0.5 bg-[var(--card)] border border-[var(--border)] rounded-md p-0.5">
+            {[{k:"7d",l:"7 ngày"},{k:"30d",l:"30 ngày"},{k:"90d",l:"90 ngày"}].map(p => (
+              <button key={p.k} onClick={() => setPeriod(p.k)} className={`px-2.5 py-1 rounded text-[11px] font-medium transition-all ${period===p.k?"bg-[var(--accent)] text-white":"text-[var(--muted-foreground)] hover:bg-[var(--muted)]"}`}>{p.l}</button>
+            ))}
+          </div>
+          <span className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)] bg-[var(--card)] border border-[var(--border)] px-2 py-1 rounded-md">
+            <Megaphone size={10} className="text-[#1877f2]" /> {fbBatches}
           </span>
-          <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] bg-[var(--card)] border border-[var(--border)] px-3 py-1.5 rounded-lg">
-            <ShoppingBag size={12} className="text-[#ee4d2d]" /> {metrics.shopeeBatches} lần
+          <span className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground)] bg-[var(--card)] border border-[var(--border)] px-2 py-1 rounded-md">
+            <ShoppingBag size={10} className="text-[#ee4d2d]" /> {shopeeBatches}
           </span>
         </div>
       </div>
 
-      {/* Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+      {/* KPI Row 1 */}
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 mb-2">
         {[
-          { icon: DollarSign, label: "Chi Ads", value: formatMoney(metrics.totalAdSpend), accent: "#ef4444" },
-          { icon: TrendingUp, label: "Giá trị đơn hàng", value: formatMoney(metrics.totalOrderValue), accent: "#22c55e" },
-          { icon: Zap, label: "Hoa hồng ròng", value: formatMoney(metrics.totalCommission), accent: "#6366f1" },
-          { icon: Star, label: "Lợi nhuận", value: (metrics.totalProfit >= 0 ? "+" : "") + formatMoney(metrics.totalProfit), accent: metrics.totalProfit >= 0 ? "#22c55e" : "#ef4444" },
+          { icon: DollarSign, label: "Chi Ads", value: formatCompact(summary.adSpend), color: "#ef4444" },
+          { icon: TrendingUp, label: "GMV", value: formatCompact(summary.gmv), color: "#3b82f6" },
+          { icon: Zap, label: "Hoa hồng", value: formatCompact(summary.commission), color: "#6366f1" },
+          { icon: Star, label: "Lợi nhuận", value: (summary.profit>=0?"+":"")+formatCompact(summary.profit), color: summary.profit>=0?"#22c55e":"#ef4444" },
+          { icon: BarChart3, label: "ROI", value: summary.roi!==null?(summary.roi>0?"+":"")+summary.roi+"%":"—", color: (summary.roi||0)>=0?"#22c55e":"#ef4444" },
+          { icon: ShieldCheck, label: "Đơn hàng", value: summary.orders.toLocaleString(), color: "#8b5cf6" },
         ].map((m, i) => (
-          <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 relative overflow-hidden hover:border-[var(--muted-foreground)]/30 transition-all">
-            <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: `linear-gradient(90deg, ${m.accent}, transparent)` }} />
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3" style={{ background: `${m.accent}15` }}>
-              <m.icon size={18} style={{ color: m.accent }} />
+          <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-3 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-[2px]" style={{ background: `linear-gradient(90deg, ${m.color}80, transparent)` }} />
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <m.icon size={13} style={{ color: m.color }} />
+              <span className="text-[10px] text-[var(--muted-foreground)]">{m.label}</span>
             </div>
-            <div className="font-mono text-2xl font-bold tracking-tight" style={{ color: m.accent }}>{m.value}</div>
-            <div className="text-xs text-[var(--muted-foreground)] mt-1">{m.label}</div>
+            <div className="font-mono text-lg font-bold" style={{ color: m.color }}>{m.value}</div>
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        {[
-          { icon: BarChart3, label: "ROI", value: (roi >= 0 ? "+" : "") + roi + "%", color: roi >= 0 ? "#22c55e" : "#ef4444" },
-          { icon: TrendingUp, label: "ROAS", value: roas },
-          { icon: ShieldCheck, label: "Tổng đơn", value: metrics.totalOrders.toLocaleString() },
-          { icon: BarChart3, label: "Chiến dịch", value: `${metrics.profitCount}✓ / ${metrics.lossCount}✗` },
-        ].map((m, i) => (
-          <div key={i} className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5">
-            <div className="w-9 h-9 rounded-lg bg-[var(--muted)] flex items-center justify-center mb-3"><m.icon size={18} className="text-[var(--muted-foreground)]" /></div>
-            <div className="font-mono text-2xl font-bold tracking-tight" style={{ color: (m as any).color }}>{m.value}</div>
-            <div className="text-xs text-[var(--muted-foreground)] mt-1">{m.label}</div>
-          </div>
-        ))}
+
+      {/* Campaign scoreboard */}
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-2.5 text-center">
+          <div className="font-mono text-xl font-bold">{campaigns.length}</div>
+          <div className="text-[10px] text-[var(--muted-foreground)]">Chiến dịch</div>
+        </div>
+        <div className="bg-[var(--card)] border border-green-500/20 rounded-lg p-2.5 text-center">
+          <div className="font-mono text-xl font-bold text-green-400">{profitCampaigns}</div>
+          <div className="text-[10px] text-[var(--muted-foreground)]">Có lãi</div>
+        </div>
+        <div className="bg-[var(--card)] border border-red-500/20 rounded-lg p-2.5 text-center">
+          <div className="font-mono text-xl font-bold text-red-400">{lossCampaigns}</div>
+          <div className="text-[10px] text-[var(--muted-foreground)]">Đang lỗ</div>
+        </div>
       </div>
 
       {/* Top campaigns chart */}
-      {topCampaigns.length > 0 && (
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl mb-5">
-          <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+      {campaigns.length > 0 && (
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl mb-4">
+          <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
             <span className="text-sm font-semibold">Top chiến dịch theo lợi nhuận</span>
-            <Link href="/reports" className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1">
-              Xem chi tiết <ArrowUpRight size={12} />
-            </Link>
+            <Link href="/reports" className="text-[11px] text-[var(--accent)] hover:underline flex items-center gap-0.5">Xem P&L <ArrowUpRight size={10} /></Link>
           </div>
-          <div className="p-4 h-[300px]">
+          <div className="p-3 h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topCampaigns} layout="vertical" margin={{ left: 10, right: 20 }}>
+              <BarChart data={campaigns} layout="vertical" margin={{ left: 0, right: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
-                <XAxis type="number" tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={formatMoney} />
-                <YAxis
-                  type="category" dataKey="name" width={140}
-                  tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} axisLine={false} tickLine={false}
-                  tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 18) + "…" : v}
-                />
+                <XAxis type="number" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={formatCompact} />
+                <YAxis type="category" dataKey="campaignName" width={120} tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.length > 16 ? v.slice(0, 16) + "…" : v} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="profit" name="Lợi nhuận" radius={[0, 4, 4, 0]}>
-                  {topCampaigns.map((entry, index) => (
-                    <Cell key={index} fill={entry.profit >= 0 ? "#22c55e" : "#ef4444"} />
-                  ))}
+                <Bar dataKey="profit" name="Lợi nhuận" radius={[0, 3, 3, 0]}>
+                  {campaigns.map((entry, index) => (<Cell key={index} fill={entry.profit >= 0 ? "#22c55e" : "#ef4444"} />))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -232,27 +157,31 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Campaign detail list */}
-      {topCampaigns.length > 0 && (
+      {/* Campaign detail table */}
+      {campaigns.length > 0 && (
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-[var(--border)]">
-            <span className="text-sm font-semibold">Chi tiết top {topCampaigns.length} chiến dịch</span>
-          </div>
-          {topCampaigns.map((c, i) => (
-            <div key={i} className="px-4 py-3 flex items-center gap-4 border-b border-[var(--border)] text-sm hover:bg-[var(--muted)] transition-colors">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${c.profit >= 0 ? "bg-green-400" : "bg-red-400"}`} />
-              <span className="flex-1 font-medium truncate">{c.name}</span>
-              <span className="font-mono text-xs text-red-400 w-20 text-right">{formatMoney(c.adSpend)}</span>
-              <span className="font-mono text-xs text-indigo-400 w-20 text-right">{formatMoney(c.commission)}</span>
-              <span className={`font-mono text-xs font-bold w-24 text-right ${c.profit >= 0 ? "text-green-400" : "text-red-400"}`}>
-                {c.profit >= 0 ? "+" : ""}{formatMoney(c.profit)}
-              </span>
-            </div>
-          ))}
-          <div className="px-4 py-3 text-center">
-            <Link href="/reports" className="text-xs text-[var(--accent)] hover:underline">
-              Xem đầy đủ báo cáo P&L →
-            </Link>
+          <div className="px-4 py-2.5 border-b border-[var(--border)]"><span className="text-sm font-semibold">Chi tiết chiến dịch</span></div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px]">
+              <thead><tr className="border-b border-[var(--border)]">
+                <th className="text-left px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Chiến dịch</th>
+                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Chi Ads</th>
+                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Hoa hồng</th>
+                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Lợi nhuận</th>
+                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">ROI</th>
+              </tr></thead>
+              <tbody>
+                {campaigns.map((c, i) => (
+                  <tr key={i} className="border-b border-[var(--border)] hover:bg-[var(--muted)] transition-colors">
+                    <td className="px-3 py-2"><div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${c.profit>0?"bg-green-400":c.profit<0?"bg-red-400":"bg-gray-400"}`} /><span className="text-sm truncate max-w-[180px]">{c.campaignName}</span></div></td>
+                    <td className="px-3 py-2 text-right font-mono text-xs text-red-400">{formatCompact(c.adSpend)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs text-indigo-400">{formatCompact(c.commission)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs font-bold" style={{ color: c.profit>=0?"#22c55e":"#ef4444" }}>{c.profit>=0?"+":""}{formatCompact(c.profit)}</td>
+                    <td className="px-3 py-2 text-right">{c.roi!==null?<span className={`font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded ${c.roi>=0?"bg-green-500/10 text-green-400":"bg-red-500/10 text-red-400"}`}>{c.roi>0?"+":""}{c.roi}%</span>:<span className="text-[11px] text-[var(--muted-foreground)]">—</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
