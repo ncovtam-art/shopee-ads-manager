@@ -174,8 +174,8 @@ export default function ImportPage() {
 
   // ── Import FB ──
   const importFb = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    const { data: { user }, error: authErr } = await supabase.auth.getUser();
+    if (!user) { setMsg("Chưa đăng nhập. Vui lòng login trước."); console.error("Auth error:", authErr); return; }
     const selected = fbRows.filter((r) => r.selected);
     if (!selected.length) { setMsg("Chọn ít nhất 1 dòng"); return; }
 
@@ -214,28 +214,34 @@ export default function ImportPage() {
 
   // ── Import Shopee ──
   const importShopee = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    const { data: { user }, error: authErr } = await supabase.auth.getUser();
+    if (!user) { setMsg("Chưa đăng nhập. Vui lòng login trước."); console.error("Auth error:", authErr); return; }
     const selected = shopeeRows.filter((r) => r.selected);
     if (!selected.length) { setMsg("Chọn ít nhất 1 dòng"); return; }
 
     setImporting(true);
-    const matched = selected.filter((r) => r.sub_id2).length;
-    const { data: batch } = await supabase
-      .from("import_batches")
-      .insert({
-        filename: fileName,
-        type: "shopee_affiliate",
-        total_rows: selected.length,
-        matched_rows: matched,
-        unmatched_rows: selected.length - matched,
-        status: "COMPLETED",
-        created_by: user.id,
-      })
-      .select()
-      .single();
+    try {
+      const matched = selected.filter((r) => r.sub_id2).length;
+      const { data: batch, error: batchErr } = await supabase
+        .from("import_batches")
+        .insert({
+          filename: fileName,
+          type: "shopee_affiliate",
+          total_rows: selected.length,
+          matched_rows: matched,
+          unmatched_rows: selected.length - matched,
+          status: "COMPLETED",
+          created_by: user.id,
+        })
+        .select()
+        .single();
 
-    if (batch) {
+      if (batchErr || !batch) {
+        setMsg("Lỗi tạo batch: " + (batchErr?.message || "Không rõ. Kiểm tra migration đã chạy chưa."));
+        setImporting(false);
+        return;
+      }
+
       const inserts = selected.map((r) => ({
         batch_id: batch.id,
         sub_id1: r.sub_id1,
@@ -244,13 +250,15 @@ export default function ImportPage() {
         net_commission: r.net_commission,
       }));
       const { error } = await supabase.from("shopee_affiliate_data").insert(inserts);
-      if (error) setMsg("Lỗi: " + error.message);
+      if (error) setMsg("Lỗi insert: " + error.message);
       else {
         setMsg(`✅ Import ${selected.length} đơn Shopee thành công! (${matched} có Sub_id2)`);
         setShopeeRows([]);
         setFileName("");
         fetchBatches();
       }
+    } catch (e: any) {
+      setMsg("Lỗi: " + (e?.message || "Không xác định"));
     }
     setImporting(false);
   };
