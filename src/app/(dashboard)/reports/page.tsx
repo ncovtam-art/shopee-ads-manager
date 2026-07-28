@@ -3,6 +3,8 @@ import { useState, useEffect } from "react";
 import { TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, BarChart3, Download, RefreshCw, Search, AlertTriangle } from "lucide-react";
 import { formatCompact, formatVND } from "@/lib/finance";
 
+import { createClient } from "@/lib/supabase";
+
 type CampaignPnl = {
   campaignName: string; pageCode: string; adSpend: number; gmv: number;
   commission: number; orders: number; profit: number; roi: number | null; roas: number | null;
@@ -10,6 +12,7 @@ type CampaignPnl = {
 type SortKey = "campaignName" | "adSpend" | "commission" | "profit" | "roi";
 
 export default function ReportsPage() {
+  const supabase = createClient();
   const [data, setData] = useState<CampaignPnl[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -22,11 +25,40 @@ export default function ReportsPage() {
 
   const fetchPnl = async () => {
     setLoading(true);
-    const days = period === "7d" ? 7 : period === "30d" ? 30 : period === "90d" ? 90 : 365;
-    const since = new Date(); since.setDate(since.getDate() - days);
-    const dateFrom = since.toISOString().split("T")[0];
-    const res = await fetch(`/api/finance?type=by-campaign&dateFrom=${dateFrom}`).then(r => r.json()).catch(() => ({ data: [] }));
-    setData(res.data || []);
+
+    // Direct Supabase calls with auth
+    const { data: fbRaw } = await supabase.from("fb_ads_data").select("campaign_name, ad_spend");
+    const { data: shopeeRaw } = await supabase.from("shopee_affiliate_data").select("sub_id1, sub_id2, order_value, net_commission");
+
+    const fbMap = new Map<string, number>();
+    fbRaw?.forEach(r => fbMap.set(r.campaign_name, (fbMap.get(r.campaign_name) || 0) + Number(r.ad_spend || 0)));
+
+    const shopeeMap = new Map<string, { page: string; gmv: number; comm: number; orders: number }>();
+    shopeeRaw?.forEach(r => {
+      const key = r.sub_id2 || "__none__";
+      const ex = shopeeMap.get(key) || { page: "", gmv: 0, comm: 0, orders: 0 };
+      ex.gmv += Number(r.order_value || 0);
+      ex.comm += Number(r.net_commission || 0);
+      ex.orders += 1;
+      if (r.sub_id1 && !ex.page) ex.page = r.sub_id1;
+      shopeeMap.set(key, ex);
+    });
+
+    const allKeys = new Set([...fbMap.keys(), ...shopeeMap.keys()]);
+    allKeys.delete("__none__");
+    const campaigns: CampaignPnl[] = Array.from(allKeys).map(name => {
+      const spend = fbMap.get(name) || 0;
+      const s = shopeeMap.get(name) || { page: "", gmv: 0, comm: 0, orders: 0 };
+      const profit = s.comm - spend;
+      return {
+        campaignName: name, pageCode: s.page, adSpend: spend, gmv: s.gmv,
+        commission: s.comm, orders: s.orders, profit,
+        roi: spend > 0 ? Math.round((profit / spend) * 1000) / 10 : null,
+        roas: spend > 0 ? Math.round((s.comm / spend) * 100) / 100 : null,
+      };
+    });
+
+    setData(campaigns);
     setLoading(false);
   };
 
