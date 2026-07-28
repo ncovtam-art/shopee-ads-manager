@@ -42,40 +42,23 @@ export default function EmployeesPage() {
     setMsg("");
 
     try {
-      // Save current session
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-
-      const { data, error } = await supabase.auth.signUp({
-        email: form.email,
-        password: form.password,
-        options: { data: { name: form.name, role: form.role } }
+      const res = await fetch("/api/create-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+          name: form.name,
+          phone: form.phone,
+          role: form.role,
+        }),
       });
+      const result = await res.json();
 
-      if (error) {
-        setMsg("Lỗi: " + (error.message || JSON.stringify(error)));
+      if (!res.ok || result.error) {
+        setMsg("Lỗi: " + (result.error || "Không xác định"));
         setSaving(false);
         return;
-      }
-
-      if (!data.user) {
-        setMsg("Không tạo được user. Kiểm tra email đã tồn tại chưa, hoặc tắt Email Confirmation trong Supabase Auth Settings.");
-        setSaving(false);
-        return;
-      }
-
-      // Update profile
-      await supabase.from("profiles").update({
-        name: form.name,
-        phone: form.phone || null,
-        role: form.role as any,
-      }).eq("id", data.user.id);
-
-      // Restore admin session (signUp may have switched to new user)
-      if (currentSession) {
-        await supabase.auth.setSession({
-          access_token: currentSession.access_token,
-          refresh_token: currentSession.refresh_token,
-        });
       }
 
       setMsg("✅ Tạo nhân viên thành công!");
