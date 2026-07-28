@@ -1,4 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
@@ -14,38 +13,55 @@ export async function POST(req: NextRequest) {
 
     if (!serviceKey || !supabaseUrl) {
       return NextResponse.json(
-        { error: "Chưa cấu hình SUPABASE_SERVICE_ROLE_KEY trên Vercel" },
+        { error: `Thiếu config: URL=${!!supabaseUrl}, KEY=${!!serviceKey}` },
         { status: 500 }
       );
     }
 
-    // Admin client with service role key (server-side only)
-    const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
+    // Call GoTrue Admin API directly
+    const authRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": serviceKey,
+        "Authorization": `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { name, role },
+      }),
     });
 
-    // Create user via admin API
-    const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true, // auto-confirm
-      user_metadata: { name, role },
-    });
+    const authData = await authRes.json();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (!authRes.ok) {
+      return NextResponse.json(
+        { error: authData.msg || authData.message || authData.error || JSON.stringify(authData) },
+        { status: authRes.status }
+      );
     }
 
-    if (data.user) {
-      // Update profile
-      await supabaseAdmin.from("profiles").update({
-        name,
-        phone: phone || null,
-        role: role || "EMPLOYEE",
-      }).eq("id", data.user.id);
+    // Update profile with name, phone, role
+    if (authData.id) {
+      await fetch(`${supabaseUrl}/rest/v1/profiles?id=eq.${authData.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": serviceKey,
+          "Authorization": `Bearer ${serviceKey}`,
+          "Prefer": "return=minimal",
+        },
+        body: JSON.stringify({
+          name,
+          phone: phone || null,
+          role: role || "EMPLOYEE",
+        }),
+      });
     }
 
-    return NextResponse.json({ success: true, userId: data.user?.id });
+    return NextResponse.json({ success: true, userId: authData.id });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Lỗi server" }, { status: 500 });
   }
