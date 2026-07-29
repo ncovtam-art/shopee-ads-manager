@@ -27,8 +27,8 @@ export default function DashboardPage() {
 
     // Fetch all data with page_id
     const [{ data: fbRaw }, { data: shopeeRaw }, { data: pagesData }] = await Promise.all([
-      supabase.from("fb_ads_data").select("campaign_name, ad_spend, page_id"),
-      supabase.from("shopee_affiliate_data").select("sub_id1, sub_id2, order_value, net_commission, page_id"),
+      supabase.from("fb_ads_data").select("campaign_name, ad_spend, page_id").limit(100000),
+      supabase.from("shopee_affiliate_data").select("sub_id1, sub_id2, order_value, net_commission, page_id").limit(100000),
       supabase.from("pages").select("id, name"),
     ]);
 

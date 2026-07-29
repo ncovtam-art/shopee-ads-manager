@@ -29,10 +29,10 @@ export default function PageDetailPage() {
     setPage(pageData);
 
     // FB Ads for this page
-    const { data: fbRaw } = await supabase.from("fb_ads_data").select("campaign_name, ad_spend, created_at").eq("page_id", pageId);
+    const { data: fbRaw } = await supabase.from("fb_ads_data").select("campaign_name, ad_spend, created_at").eq("page_id", pageId).limit(100000);
 
     // Shopee for this page
-    const { data: shopeeRaw } = await supabase.from("shopee_affiliate_data").select("sub_id2, order_value, net_commission, created_at").eq("page_id", pageId);
+    const { data: shopeeRaw } = await supabase.from("shopee_affiliate_data").select("sub_id2, order_value, net_commission, created_at").eq("page_id", pageId).limit(100000);
 
     // Totals
     const totalAd = fbRaw?.reduce((s, r) => s + Number(r.ad_spend || 0), 0) || 0;

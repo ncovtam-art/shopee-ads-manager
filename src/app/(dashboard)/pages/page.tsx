@@ -25,8 +25,8 @@ export default function PagesPage() {
     const [{ data: pagesData }, { data: profiles }, { data: fbData }, { data: shopeeData }, { data: batchData }] = await Promise.all([
       supabase.from("pages").select("*").order("name"),
       supabase.from("profiles").select("id, name"),
-      supabase.from("fb_ads_data").select("page_id, ad_spend"),
-      supabase.from("shopee_affiliate_data").select("page_id, order_value, net_commission"),
+      supabase.from("fb_ads_data").select("page_id, ad_spend").limit(100000),
+      supabase.from("shopee_affiliate_data").select("page_id, order_value, net_commission").limit(100000),
       supabase.from("import_batches").select("page_id"),
     ]);
 
