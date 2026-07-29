@@ -17,24 +17,38 @@ export default function PagesPage() {
   const [form, setForm] = useState({ name: "", facebook_uid: "", assignee_id: "" });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [myRole, setMyRole] = useState("");
+  const [myId, setMyId] = useState("");
 
   useEffect(() => { fetchAll(); }, []);
 
   const fetchAll = async () => {
     setLoading(true);
-    const [{ data: summaryData }, { data: pagesData }, { data: profiles }, { data: batchData }] = await Promise.all([
+
+    // Get current user role
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: myProfile } = await supabase.from("profiles").select("id, role").eq("id", user.id).single();
+    const role = myProfile?.role || "EMPLOYEE";
+    setMyRole(role);
+    setMyId(user.id);
+    const isAdmin = role === "ADMIN" || role === "LEADER";
+
+    // Fetch pages — employee only sees assigned pages
+    let pagesQuery = supabase.from("pages").select("*").order("name");
+    if (!isAdmin) pagesQuery = pagesQuery.eq("assignee_id", user.id);
+    const { data: pagesData } = await pagesQuery;
+
+    const [{ data: summaryData }, { data: profiles }, { data: batchData }] = await Promise.all([
       supabase.rpc("get_page_summary"),
-      supabase.from("pages").select("*").order("name"),
       supabase.from("profiles").select("id, name"),
       supabase.from("import_batches").select("page_id"),
     ]);
 
     const empMap = new Map<string, string>();
     profiles?.forEach(p => empMap.set(p.id, p.name));
-
     const finMap = new Map<string, any>();
     summaryData?.forEach((s: any) => finMap.set(s.page_id, s));
-
     const importMap = new Map<string, number>();
     batchData?.forEach((b: any) => { if (b.page_id) importMap.set(b.page_id, (importMap.get(b.page_id) || 0) + 1); });
 
@@ -42,10 +56,8 @@ export default function PagesPage() {
       const f = finMap.get(p.id);
       const ad = f ? Number(f.total_ad_spend) : 0;
       const comm = f ? Number(f.total_commission) : 0;
-      const gmv = f ? Number(f.total_gmv) : 0;
-      const orders = f ? Number(f.total_orders) : 0;
       const profit = comm - ad;
-      return { id: p.id, name: p.name, status: p.status, assignee_name: p.assignee_id ? empMap.get(p.assignee_id) : undefined, adSpend: ad, gmv, commission: comm, orders, profit, roi: ad > 0 ? Math.round((profit / ad) * 1000) / 10 : null, importCount: importMap.get(p.id) || 0 };
+      return { id: p.id, name: p.name, status: p.status, assignee_name: p.assignee_id ? empMap.get(p.assignee_id) : undefined, adSpend: ad, gmv: f ? Number(f.total_gmv) : 0, commission: comm, orders: f ? Number(f.total_orders) : 0, profit, roi: ad > 0 ? Math.round((profit / ad) * 1000) / 10 : null, importCount: importMap.get(p.id) || 0 };
     });
     result.sort((a, b) => b.profit - a.profit);
     setPages(result);
@@ -62,26 +74,28 @@ export default function PagesPage() {
     setSaving(false);
   };
 
+  const isAdmin = myRole === "ADMIN" || myRole === "LEADER";
   const filtered = pages.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
   const totals = filtered.reduce((a, p) => ({ ad: a.ad + p.adSpend, comm: a.comm + p.commission, profit: a.profit + p.profit, orders: a.orders + p.orders }), { ad: 0, comm: 0, profit: 0, orders: 0 });
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4"><div><h1 className="text-lg font-bold">Pages</h1><p className="text-xs text-[var(--muted-foreground)] mt-0.5">{pages.length} page · Bấm vào page để xem chi tiết</p></div>
-        <button onClick={() => { setShowAdd(true); setMsg(""); }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white text-xs font-semibold hover:opacity-90"><Plus size={12} /> Thêm Page</button></div>
+      <div className="flex items-center justify-between mb-4"><div><h1 className="text-lg font-bold">Pages</h1><p className="text-xs text-[var(--muted-foreground)] mt-0.5">{isAdmin ? `${pages.length} page toàn hệ thống` : `${pages.length} page được giao cho bạn`}</p></div>
+        {isAdmin && <button onClick={() => { setShowAdd(true); setMsg(""); }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white text-xs font-semibold hover:opacity-90"><Plus size={12} /> Thêm Page</button>}
+      </div>
 
       <div className="flex items-center gap-1.5 glass-card border border-[var(--border)] rounded-md px-2.5 py-1.5 mb-3 max-w-xs"><Search size={12} className="text-[var(--muted-foreground)]" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm page..." className="bg-transparent text-xs outline-none flex-1" /></div>
 
-      {loading ? <div className="glass-card rounded-xl border border-[var(--border)] p-8 text-center text-xs text-[var(--muted-foreground)]">Đang tải...</div> : filtered.length === 0 ? <div className="glass-card rounded-xl border border-[var(--border)] p-8 text-center"><FileText size={24} className="text-[var(--muted-foreground)] mx-auto mb-2" /><div className="text-xs text-[var(--muted-foreground)]">{pages.length === 0 ? "Chưa có Page." : "Không tìm thấy."}</div></div> : (
+      {loading ? <div className="glass-card rounded-xl border border-[var(--border)] p-8 text-center text-xs text-[var(--muted-foreground)]">Đang tải...</div> : filtered.length === 0 ? <div className="glass-card rounded-xl border border-[var(--border)] p-8 text-center"><FileText size={24} className="text-[var(--muted-foreground)] mx-auto mb-2" /><div className="text-xs text-[var(--muted-foreground)]">{pages.length === 0 ? (isAdmin ? "Chưa có Page." : "Bạn chưa được giao Page nào.") : "Không tìm thấy."}</div></div> : (
         <div className="glass-card rounded-2xl border border-[var(--border)] overflow-hidden"><div className="overflow-x-auto">
           <table className="w-full min-w-[750px]"><thead><tr className="border-b border-[var(--border)]">
-            <th className="w-10 px-3 py-2.5 text-[10px]">#</th><th className="text-left px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Page</th><th className="text-left px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">NV</th><th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Chi Ads</th><th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Hoa hồng</th><th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Lợi nhuận</th><th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">ROI</th><th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Đơn</th><th className="w-8"></th>
+            <th className="w-10 px-3 py-2.5 text-[10px]">#</th><th className="text-left px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Page</th>{isAdmin && <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">NV</th>}<th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Chi Ads</th><th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Hoa hồng</th><th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Lợi nhuận</th><th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">ROI</th><th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Đơn</th><th className="w-8"></th>
           </tr></thead><tbody>
             {filtered.map((p, i) => (
               <tr key={p.id} className="border-b border-[var(--border)] row-hover transition-colors">
                 <td className="px-3 py-2.5 text-center"><div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold ${i < 3 && p.profit > 0 ? "bg-gradient-to-br from-amber-500 to-amber-600 text-white" : p.profit > 0 ? "bg-green-500/15 text-green-400" : p.profit < 0 ? "bg-red-500/15 text-red-400" : "bg-zinc-500/15 text-zinc-400"}`}>{i < 3 && p.profit > 0 ? ["🥇","🥈","🥉"][i] : i+1}</div></td>
                 <td className="px-3 py-2.5"><Link href={`/pages/${p.id}`} className="group"><div className="text-xs font-semibold group-hover:text-[var(--accent)] transition-colors">{p.name}</div><div className="text-[10px] text-[var(--muted-foreground)]">{p.importCount} lần import</div></Link></td>
-                <td className="px-3 py-2.5 text-xs text-[var(--muted-foreground)]">{p.assignee_name || "—"}</td>
+                {isAdmin && <td className="px-3 py-2.5 text-xs text-[var(--muted-foreground)]">{p.assignee_name || "—"}</td>}
                 <td className="px-3 py-2.5 text-right font-mono text-xs text-red-400">{p.adSpend > 0 ? formatCompact(p.adSpend) : "—"}</td>
                 <td className="px-3 py-2.5 text-right font-mono text-xs text-indigo-400">{p.commission > 0 ? formatCompact(p.commission) : "—"}</td>
                 <td className="px-3 py-2.5 text-right"><span className={`font-mono text-xs font-bold ${p.profit>0?"text-green-400":p.profit<0?"text-red-400":"text-[var(--muted-foreground)]"}`}>{p.profit!==0?(p.profit>0?"+":"")+formatCompact(p.profit):"—"}</span></td>
@@ -90,17 +104,15 @@ export default function PagesPage() {
                 <td className="px-3 py-2.5"><Link href={`/pages/${p.id}`} className="text-[var(--muted-foreground)] hover:text-[var(--accent)]"><ExternalLink size={12} /></Link></td>
               </tr>
             ))}
-          </tbody>
-          <tfoot><tr className="border-t-2 border-[var(--border)] bg-[var(--muted)]"><td className="px-3 py-2.5" /><td className="px-3 py-2.5 text-xs font-bold" colSpan={2}>TỔNG ({filtered.length})</td><td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-red-400">{formatCompact(totals.ad)}</td><td className="px-3 py-2.5 text-right font-mono text-xs font-bold text-indigo-400">{formatCompact(totals.comm)}</td><td className="px-3 py-2.5 text-right font-mono text-xs font-bold" style={{ color: totals.profit>=0?"#22c55e":"#ef4444" }}>{totals.profit>0?"+":""}{formatCompact(totals.profit)}</td><td colSpan={3} /></tr></tfoot>
-          </table></div></div>
+          </tbody></table></div></div>
       )}
 
-      {showAdd && (
+      {showAdd && isAdmin && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowAdd(false)}>
           <div onClick={e => e.stopPropagation()} className="w-full max-w-md glass-card border border-[var(--border)] rounded-xl overflow-hidden shadow-2xl">
             <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between"><span className="text-sm font-semibold">Thêm Page</span><button onClick={() => setShowAdd(false)} className="text-[var(--muted-foreground)]"><X size={16} /></button></div>
             <div className="p-4 space-y-2.5">
-              <div><label className="block text-[10px] text-[var(--muted-foreground)] mb-0.5">Tên Page *</label><input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-2.5 py-1.5 bg-[var(--input)] border border-[var(--border)] rounded-md text-xs" placeholder="Page Mỹ Phẩm" /></div>
+              <div><label className="block text-[10px] text-[var(--muted-foreground)] mb-0.5">Tên Page *</label><input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-2.5 py-1.5 bg-[var(--input)] border border-[var(--border)] rounded-md text-xs" /></div>
               <div><label className="block text-[10px] text-[var(--muted-foreground)] mb-0.5">Facebook UID</label><input value={form.facebook_uid} onChange={e => setForm({...form, facebook_uid: e.target.value})} className="w-full px-2.5 py-1.5 bg-[var(--input)] border border-[var(--border)] rounded-md text-xs" /></div>
               <div><label className="block text-[10px] text-[var(--muted-foreground)] mb-0.5">Nhân viên phụ trách</label><select value={form.assignee_id} onChange={e => setForm({...form, assignee_id: e.target.value})} className="w-full px-2.5 py-1.5 bg-[var(--input)] border border-[var(--border)] rounded-md text-xs"><option value="">Chưa giao</option>{employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></div>
               {msg && <div className="text-xs text-red-400 bg-red-500/10 rounded px-2.5 py-1.5">{msg}</div>}

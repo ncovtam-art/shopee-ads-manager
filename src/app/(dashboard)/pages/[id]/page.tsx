@@ -22,16 +22,33 @@ export default function PageDetailPage() {
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<Period>("all");
   const [totals, setTotals] = useState({ adSpend: 0, gmv: 0, commission: 0, orders: 0, profit: 0 });
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => { if (id) fetchData(); }, [id, period]);
 
   const fetchData = async () => {
     setLoading(true);
     const pageId = id as string;
-    const { from, to } = getDateRange(period);
 
+    // Auth + ownership check
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: myProfile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const role = myProfile?.role || "EMPLOYEE";
+    const isAdmin = role === "ADMIN" || role === "LEADER";
+
+    // Check page ownership for employees
     const { data: pageData } = await supabase.from("pages").select("*, assignee:assignee_id(name)").eq("id", pageId).single();
+    if (!pageData) { setLoading(false); return; }
+
+    if (!isAdmin && pageData.assignee_id !== user.id) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
+
     setPage(pageData);
+    const { from, to } = getDateRange(period);
 
     // RPC daily data — no row limit
     const { data: dailyData } = await supabase.rpc("get_page_daily", { p_page_id: pageId, date_from: from, date_to: to });
@@ -57,6 +74,7 @@ export default function PageDetailPage() {
   };
 
   if (loading) return <div className="text-xs text-[var(--muted-foreground)] p-8 text-center">Đang tải...</div>;
+  if (accessDenied) return <div className="glass-card rounded-xl border border-red-500/20 p-8 text-center"><div className="text-red-400 text-sm font-semibold mb-1">Không có quyền truy cập</div><div className="text-xs text-[var(--muted-foreground)] mb-3">Page này không được giao cho bạn.</div><Link href="/pages" className="text-xs text-[var(--accent)] hover:underline">← Quay lại Pages</Link></div>;
   if (!page) return <div className="text-xs text-red-400 p-8 text-center">Không tìm thấy page</div>;
 
   return (

@@ -56,7 +56,6 @@ export default function LoginPage() {
           </form>
         </div>
         <p className="text-center text-xs text-[var(--muted-foreground)] mt-4">
-          Chưa có tài khoản? <Link href="/register" className="text-[var(--accent)] font-medium hover:underline">Đăng ký</Link>
         </p>
         <div className="text-center mt-4 space-y-0.5">
           <p className="text-[11px] text-[var(--muted-foreground)]">Được phát triển bởi <span className="font-medium text-[var(--foreground)]">Minh Tâm</span></p>
