@@ -26,32 +26,48 @@ export default function ReportsPage() {
   const fetchPnl = async () => {
     setLoading(true);
 
-    // Direct Supabase calls with auth
-    const { data: fbRaw } = await supabase.from("fb_ads_data").select("campaign_name, ad_spend");
-    const { data: shopeeRaw } = await supabase.from("shopee_affiliate_data").select("sub_id1, sub_id2, order_value, net_commission");
+    // Fetch with page_id + page name
+    const { data: fbRaw } = await supabase.from("fb_ads_data").select("campaign_name, ad_spend, page_id");
+    const { data: shopeeRaw } = await supabase.from("shopee_affiliate_data").select("sub_id1, sub_id2, order_value, net_commission, page_id");
+    const { data: pagesData } = await supabase.from("pages").select("id, name");
 
-    const fbMap = new Map<string, number>();
-    fbRaw?.forEach(r => fbMap.set(r.campaign_name, (fbMap.get(r.campaign_name) || 0) + Number(r.ad_spend || 0)));
+    // Page name map
+    const pageNameMap = new Map<string, string>();
+    pagesData?.forEach(p => pageNameMap.set(p.id, p.name));
 
-    const shopeeMap = new Map<string, { page: string; gmv: number; comm: number; orders: number }>();
+    // FB by campaign — also track page_id
+    const fbMap = new Map<string, { spend: number; pageId: string }>();
+    fbRaw?.forEach(r => {
+      const ex = fbMap.get(r.campaign_name) || { spend: 0, pageId: "" };
+      ex.spend += Number(r.ad_spend || 0);
+      if (r.page_id && !ex.pageId) ex.pageId = r.page_id;
+      fbMap.set(r.campaign_name, ex);
+    });
+
+    // Shopee by sub_id2 — also track page_id
+    const shopeeMap = new Map<string, { pageId: string; gmv: number; comm: number; orders: number }>();
     shopeeRaw?.forEach(r => {
       const key = r.sub_id2 || "__none__";
-      const ex = shopeeMap.get(key) || { page: "", gmv: 0, comm: 0, orders: 0 };
+      const ex = shopeeMap.get(key) || { pageId: "", gmv: 0, comm: 0, orders: 0 };
       ex.gmv += Number(r.order_value || 0);
       ex.comm += Number(r.net_commission || 0);
       ex.orders += 1;
-      if (r.sub_id1 && !ex.page) ex.page = r.sub_id1;
+      if (r.page_id && !ex.pageId) ex.pageId = r.page_id;
       shopeeMap.set(key, ex);
     });
 
     const allKeys = new Set([...fbMap.keys(), ...shopeeMap.keys()]);
     allKeys.delete("__none__");
     const campaigns: CampaignPnl[] = Array.from(allKeys).map(name => {
-      const spend = fbMap.get(name) || 0;
-      const s = shopeeMap.get(name) || { page: "", gmv: 0, comm: 0, orders: 0 };
+      const fb = fbMap.get(name) || { spend: 0, pageId: "" };
+      const s = shopeeMap.get(name) || { pageId: "", gmv: 0, comm: 0, orders: 0 };
+      const spend = fb.spend;
       const profit = s.comm - spend;
+      const pageId = fb.pageId || s.pageId;
       return {
-        campaignName: name, pageCode: s.page, adSpend: spend, gmv: s.gmv,
+        campaignName: name,
+        pageCode: pageId ? pageNameMap.get(pageId) || "" : "",
+        adSpend: spend, gmv: s.gmv,
         commission: s.comm, orders: s.orders, profit,
         roi: spend > 0 ? Math.round((profit / spend) * 1000) / 10 : null,
         roas: spend > 0 ? Math.round((s.comm / spend) * 100) / 100 : null,
