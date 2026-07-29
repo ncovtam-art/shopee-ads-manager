@@ -25,9 +25,15 @@ export default function DashboardPage() {
   const fetchAll = async () => {
     setLoading(true);
 
-    // Direct Supabase calls — keeps auth session for RLS
-    const { data: fbRaw } = await supabase.from("fb_ads_data").select("campaign_name, ad_spend");
-    const { data: shopeeRaw } = await supabase.from("shopee_affiliate_data").select("sub_id1, sub_id2, order_value, net_commission");
+    // Fetch all data with page_id
+    const [{ data: fbRaw }, { data: shopeeRaw }, { data: pagesData }] = await Promise.all([
+      supabase.from("fb_ads_data").select("campaign_name, ad_spend, page_id"),
+      supabase.from("shopee_affiliate_data").select("sub_id1, sub_id2, order_value, net_commission, page_id"),
+      supabase.from("pages").select("id, name"),
+    ]);
+
+    const pageNameMap = new Map<string, string>();
+    pagesData?.forEach(p => pageNameMap.set(p.id, p.name));
 
     const totalAd = fbRaw?.reduce((s, r) => s + Number(r.ad_spend || 0), 0) || 0;
     const totalGmv = shopeeRaw?.reduce((s, r) => s + Number(r.order_value || 0), 0) || 0;
@@ -36,28 +42,36 @@ export default function DashboardPage() {
 
     setAdSpend(totalAd); setGmv(totalGmv); setCommission(totalComm); setOrders(totalOrders);
 
-    // Group by campaign
-    const fbMap = new Map<string, number>();
-    fbRaw?.forEach(r => fbMap.set(r.campaign_name, (fbMap.get(r.campaign_name) || 0) + Number(r.ad_spend || 0)));
-
-    const shopeeMap = new Map<string, { page: string; comm: number; orders: number }>();
+    // Group by PAGE (page_id) — not campaign name
+    const pageMap = new Map<string, { adSpend: number; commission: number; orders: number }>();
+    fbRaw?.forEach(r => {
+      const key = r.page_id || "__no_page__";
+      const ex = pageMap.get(key) || { adSpend: 0, commission: 0, orders: 0 };
+      ex.adSpend += Number(r.ad_spend || 0);
+      pageMap.set(key, ex);
+    });
     shopeeRaw?.forEach(r => {
-      const key = r.sub_id2 || "__none__";
-      const ex = shopeeMap.get(key) || { page: "", comm: 0, orders: 0 };
-      ex.comm += Number(r.net_commission || 0);
+      const key = r.page_id || "__no_page__";
+      const ex = pageMap.get(key) || { adSpend: 0, commission: 0, orders: 0 };
+      ex.commission += Number(r.net_commission || 0);
       ex.orders += 1;
-      if (r.sub_id1 && !ex.page) ex.page = r.sub_id1;
-      shopeeMap.set(key, ex);
+      pageMap.set(key, ex);
     });
 
-    const allKeys = new Set([...fbMap.keys(), ...shopeeMap.keys()]);
-    allKeys.delete("__none__");
-    const rows: CampaignRow[] = Array.from(allKeys).map(name => {
-      const spend = fbMap.get(name) || 0;
-      const s = shopeeMap.get(name) || { page: "", comm: 0, orders: 0 };
-      const profit = s.comm - spend;
-      return { name, page: s.page, adSpend: spend, commission: s.comm, profit, roi: spend > 0 ? Math.round((profit / spend) * 1000) / 10 : null, orders: s.orders };
-    });
+    const rows: CampaignRow[] = Array.from(pageMap.entries())
+      .filter(([key]) => key !== "__no_page__")
+      .map(([pageId, v]) => {
+        const profit = v.commission - v.adSpend;
+        return {
+          name: pageNameMap.get(pageId) || pageId,
+          page: "",
+          adSpend: v.adSpend,
+          commission: v.commission,
+          profit,
+          roi: v.adSpend > 0 ? Math.round((profit / v.adSpend) * 1000) / 10 : null,
+          orders: v.orders,
+        };
+      });
     rows.sort((a, b) => b.profit - a.profit);
     setCampaigns(rows.slice(0, 10));
 
@@ -147,16 +161,16 @@ export default function DashboardPage() {
 
       {/* Scoreboard */}
       <div className="grid grid-cols-3 gap-2.5 mb-5">
-        <div className="glass-card rounded-xl p-3 text-center border border-[var(--border)]"><div className="font-mono text-2xl font-bold">{campaigns.length}</div><div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">Chiến dịch</div></div>
-        <div className="glass-card rounded-xl p-3 text-center border border-green-500/10 glow-green"><div className="font-mono text-2xl font-bold text-green-400 flex items-center justify-center gap-1"><ArrowUpRight size={16} />{profitCampaigns}</div><div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">Có lãi</div></div>
-        <div className="glass-card rounded-xl p-3 text-center border border-red-500/10 glow-red"><div className="font-mono text-2xl font-bold text-red-400 flex items-center justify-center gap-1"><ArrowDownRight size={16} />{lossCampaigns}</div><div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">Đang lỗ</div></div>
+        <div className="glass-card rounded-xl p-3 text-center border border-[var(--border)]"><div className="font-mono text-2xl font-bold">{campaigns.length}</div><div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">Page</div></div>
+        <div className="glass-card rounded-xl p-3 text-center border border-green-500/10 glow-green"><div className="font-mono text-2xl font-bold text-green-400 flex items-center justify-center gap-1"><ArrowUpRight size={16} />{profitCampaigns}</div><div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">Page lãi</div></div>
+        <div className="glass-card rounded-xl p-3 text-center border border-red-500/10 glow-red"><div className="font-mono text-2xl font-bold text-red-400 flex items-center justify-center gap-1"><ArrowDownRight size={16} />{lossCampaigns}</div><div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">Page lỗ</div></div>
       </div>
 
       {/* Chart */}
       {campaigns.length > 0 && (
         <div className="glass-card rounded-2xl border border-[var(--border)] mb-4 overflow-hidden">
           <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center justify-between">
-            <div><span className="text-sm font-semibold">Top chiến dịch</span><span className="text-[10px] text-[var(--muted-foreground)] ml-2">theo lợi nhuận</span></div>
+            <div><span className="text-sm font-semibold">Top Pages</span><span className="text-[10px] text-[var(--muted-foreground)] ml-2">theo lợi nhuận</span></div>
             <Link href="/reports" className="text-[11px] text-[var(--accent)] hover:underline flex items-center gap-0.5 font-medium">Xem P&L <ArrowUpRight size={10} /></Link>
           </div>
           <div className="p-4 h-[280px]">
@@ -178,11 +192,11 @@ export default function DashboardPage() {
       {/* Table */}
       {campaigns.length > 0 && (
         <div className="glass-card rounded-2xl border border-[var(--border)] overflow-hidden">
-          <div className="px-5 py-3 border-b border-[var(--border)]"><span className="text-sm font-semibold">Chi tiết top {campaigns.length} chiến dịch</span></div>
+          <div className="px-5 py-3 border-b border-[var(--border)]"><span className="text-sm font-semibold">Chi tiết theo Page</span></div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[650px]">
               <thead><tr className="border-b border-[var(--border)]">
-                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">Chiến dịch</th>
+                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">Page</th>
                 <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">Chi Ads</th>
                 <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">Hoa hồng</th>
                 <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">Lợi nhuận</th>
@@ -216,7 +230,7 @@ export default function DashboardPage() {
 
       {lossCampaigns > 0 && (
         <div className="glass-card rounded-2xl border border-red-500/10 glow-red mt-4 overflow-hidden">
-          <div className="px-5 py-3 border-b border-red-500/10 flex items-center gap-2"><AlertTriangle size={14} className="text-red-400" /><span className="text-sm font-semibold text-red-400">Cảnh báo: {lossCampaigns} chiến dịch đang lỗ</span></div>
+          <div className="px-5 py-3 border-b border-red-500/10 flex items-center gap-2"><AlertTriangle size={14} className="text-red-400" /><span className="text-sm font-semibold text-red-400">Cảnh báo: {lossCampaigns} page lỗ</span></div>
           {campaigns.filter(c => c.profit < 0).slice(0, 5).map((c, i) => (
             <div key={i} className="px-5 py-2.5 flex items-center justify-between border-b border-[var(--border)] last:border-0 row-hover">
               <div className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-red-400 pulse-dot" /><span className="text-xs font-medium">{c.name}</span></div>
