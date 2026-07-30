@@ -179,90 +179,61 @@ export default function PageDetailPage() {
         </button>
       </div>
 
-      {/* CAMPAIGNS TAB */}
+      {/* CAMPAIGNS TAB — style Affiliate Full */}
       {tab === "campaigns" && (
-        <div>
-          {/* P&L Summary */}
-          <div className="grid grid-cols-3 gap-2 mb-3">
-            <div className="glass-card rounded-lg p-3 border border-red-500/10 glow-red text-center">
-              <div className="text-[10px] text-[var(--muted-foreground)] mb-0.5">TỔNG CHI ADS</div>
-              <div className="font-mono text-lg font-bold text-red-400">{formatCompact(campTotals.ad)}</div>
-            </div>
-            <div className="glass-card rounded-lg p-3 border border-indigo-500/10 glow-purple text-center">
-              <div className="text-[10px] text-[var(--muted-foreground)] mb-0.5">TỔNG HOA HỒNG</div>
-              <div className="font-mono text-lg font-bold text-indigo-400">{formatCompact(campTotals.comm)}</div>
-            </div>
-            <div className={`glass-card rounded-lg p-3 border text-center ${campTotals.profit >= 0 ? "border-green-500/10 glow-green" : "border-red-500/10 glow-red"}`}>
-              <div className="text-[10px] text-[var(--muted-foreground)] mb-0.5">LỢI NHUẬN</div>
-              <div className="font-mono text-lg font-bold" style={{ color: campTotals.profit >= 0 ? "#22c55e" : "#ef4444" }}>{campTotals.profit > 0 ? "+" : ""}{formatCompact(campTotals.profit)}</div>
-            </div>
+        <div className="glass-card rounded-2xl border border-[var(--border)] overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead><tr className="border-b border-[var(--border)] bg-[var(--muted)]">
+                <th className="text-left px-4 py-2.5 text-[11px] font-bold text-[var(--foreground)]">Chiến dịch</th>
+                <th className="text-right px-4 py-2.5 text-[11px] font-bold text-[var(--foreground)]">Chi tiêu</th>
+                <th className="text-right px-4 py-2.5 text-[11px] font-bold text-[var(--foreground)]">Đơn</th>
+                <th className="text-right px-4 py-2.5 text-[11px] font-bold text-[var(--foreground)]">Hoa hồng</th>
+                <th className="text-right px-4 py-2.5 text-[11px] font-bold text-[var(--foreground)]">Tiền về</th>
+                <th className="text-right px-4 py-2.5 text-[11px] font-bold text-[var(--foreground)]">ROI</th>
+              </tr></thead>
+              <tbody>
+                {mergedCampaigns.length === 0 ? (
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-xs text-[var(--muted-foreground)]">Chưa có dữ liệu. Upload FB Ads và Shopee cho page này.</td></tr>
+                ) : mergedCampaigns.map((c, i) => {
+                  const profit = c.commission - c.adSpend;
+                  const roiVal = c.adSpend > 0 ? Math.round((profit / c.adSpend) * 1000) / 10 : null;
+                  return (
+                    <tr key={i} className={`border-b border-[var(--border)] transition-colors ${profit > 0 ? "hover:bg-green-500/5" : profit < 0 ? "hover:bg-red-500/5" : "hover:bg-[var(--muted)]"}`}>
+                      <td className="px-4 py-2.5 text-xs font-mono font-semibold">{c.name}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-xs">{c.adSpend > 0 ? formatCompact(c.adSpend) : "0"}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-xs">{c.orders}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-xs">{c.commission > 0 ? formatCompact(c.commission) : "0"}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-xs font-bold" style={{ color: profit > 0 ? "#22c55e" : profit < 0 ? "#ef4444" : "var(--muted-foreground)" }}>
+                        {profit > 0 ? "+" : ""}{formatCompact(profit)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <span className={`font-mono text-xs font-bold ${(roiVal || 0) > 0 ? "text-green-400" : (roiVal || 0) < 0 ? "text-red-400" : "text-[var(--muted-foreground)]"}`}>
+                          {roiVal !== null ? (roiVal > 0 ? "+" : "") + roiVal + "%" : "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-
-          {/* Merged table */}
-          <div className="glass-card rounded-2xl border border-[var(--border)] overflow-hidden">
-            <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-              <table className="w-full min-w-[700px]">
-                <thead className="sticky top-0 bg-[var(--card)] z-10"><tr className="border-b border-[var(--border)]">
-                  <th className="w-8 px-2 py-2 text-[10px]">#</th>
-                  <th className="text-left px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">CAMPAIGN / SUB_ID2</th>
-                  <th className="text-left px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">SUB_ID1</th>
-                  <th className="text-left px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">NGUỒN</th>
-                  <th className="text-right px-2 py-2 text-[10px] font-semibold text-red-400">CHI ADS</th>
-                  <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">GMV</th>
-                  <th className="text-right px-2 py-2 text-[10px] font-semibold text-indigo-400">HOA HỒNG</th>
-                  <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">ĐƠN</th>
-                  <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">LỢI NHUẬN</th>
-                  <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">ROI</th>
-                </tr></thead>
-                <tbody>
-                  {mergedCampaigns.length === 0 ? (
-                    <tr><td colSpan={10} className="px-3 py-8 text-center text-[10px] text-[var(--muted-foreground)]">Chưa có dữ liệu. Upload FB Ads và Shopee cho page này.</td></tr>
-                  ) : mergedCampaigns.map((c, i) => {
-                    const profit = c.commission - c.adSpend;
-                    const roiVal = c.adSpend > 0 ? Math.round((profit / c.adSpend) * 1000) / 10 : null;
-                    return (
-                      <tr key={i} className={`border-b border-[var(--border)] row-hover ${c.adSpend > 0 && c.commission > 0 ? "" : "opacity-75"}`}>
-                        <td className="px-2 py-1.5 text-center">
-                          <div className={`w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold ${profit > 0 ? "bg-green-500/15 text-green-400" : profit < 0 ? "bg-red-500/15 text-red-400" : c.adSpend > 0 ? "bg-red-500/10 text-red-300" : "bg-indigo-500/10 text-indigo-300"}`}>{i+1}</div>
-                        </td>
-                        <td className="px-2 py-1.5 text-xs font-mono font-medium">{c.name}</td>
-                        <td className="px-2 py-1.5">{c.subId1 ? <span className="text-[10px] font-mono text-[var(--muted-foreground)]">{c.subId1}</span> : <span className="text-[10px] text-[var(--muted-foreground)]">—</span>}</td>
-                        <td className="px-2 py-1.5">
-                          <div className="flex gap-0.5">
-                            {c.hasFb && <span className="text-[8px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 font-bold">FB</span>}
-                            {c.hasShopee && <span className="text-[8px] px-1 py-0.5 rounded bg-orange-500/10 text-orange-400 font-bold">SP</span>}
-                          </div>
-                        </td>
-                        <td className="px-2 py-1.5 text-right font-mono text-xs text-red-400">{c.adSpend > 0 ? formatCompact(c.adSpend) : "—"}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-xs">{c.gmv > 0 ? formatCompact(c.gmv) : "—"}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-xs text-indigo-400">{c.commission > 0 ? formatCompact(c.commission) : "—"}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-xs text-[var(--muted-foreground)]">{c.orders > 0 ? c.orders : "—"}</td>
-                        <td className="px-2 py-1.5 text-right">
-                          {(c.adSpend > 0 || c.commission > 0) ? (
-                            <span className={`font-mono text-xs font-bold ${profit > 0 ? "text-green-400" : profit < 0 ? "text-red-400" : "text-[var(--muted-foreground)]"}`}>{profit > 0 ? "+" : ""}{formatCompact(profit)}</span>
-                          ) : <span className="text-[10px] text-[var(--muted-foreground)]">—</span>}
-                        </td>
-                        <td className="px-2 py-1.5 text-right">
-                          {roiVal !== null ? <span className={`font-mono text-[9px] font-semibold px-1 py-0.5 rounded ${roiVal >= 0 ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>{roiVal > 0 ? "+" : ""}{roiVal}%</span> : <span className="text-[10px] text-[var(--muted-foreground)]">—</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                {mergedCampaigns.length > 0 && (
-                  <tfoot><tr className="border-t-2 border-[var(--border)] bg-[var(--muted)]">
-                    <td className="px-2 py-2" /><td className="px-2 py-2 text-xs font-bold" colSpan={3}>TỔNG ({mergedCampaigns.length})</td>
-                    <td className="px-2 py-2 text-right font-mono text-xs font-bold text-red-400">{formatCompact(campTotals.ad)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-xs font-bold">{formatCompact(campTotals.gmv)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-xs font-bold text-indigo-400">{formatCompact(campTotals.comm)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-xs font-bold">{campTotals.orders}</td>
-                    <td className="px-2 py-2 text-right font-mono text-xs font-bold" style={{ color: campTotals.profit >= 0 ? "#22c55e" : "#ef4444" }}>{campTotals.profit > 0 ? "+" : ""}{formatCompact(campTotals.profit)}</td>
-                    <td className="px-2 py-2" />
-                  </tr></tfoot>
-                )}
-              </table>
+          {/* Totals */}
+          {mergedCampaigns.length > 0 && (
+            <div className={`px-4 py-3 border-t-2 border-[var(--border)] flex items-center justify-center gap-3 text-xs font-mono ${campTotals.profit >= 0 ? "bg-green-500/5" : "bg-red-500/5"}`}>
+              <span>Tổng:</span>
+              <span>Chi tiêu <b className="text-red-400">{formatCompact(campTotals.ad)}</b></span>
+              <span>·</span>
+              <span>Hoa hồng <b className="text-indigo-400">{formatCompact(campTotals.comm)}</b></span>
+              <span>·</span>
+              <span>Tiền về <b style={{ color: campTotals.profit >= 0 ? "#22c55e" : "#ef4444" }}>{campTotals.profit > 0 ? "+" : ""}{formatCompact(campTotals.profit)}</b></span>
+              <span>·</span>
+              <span>ROI <b style={{ color: campTotals.profit >= 0 ? "#22c55e" : "#ef4444" }}>{campTotals.ad > 0 ? Math.round(((campTotals.comm - campTotals.ad) / campTotals.ad) * 1000) / 10 : 0}%</b></span>
+              <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold ${campTotals.profit >= 0 ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
+                {campTotals.profit >= 0 ? "● LÃI" : "● LỖ"}
+              </span>
             </div>
-          </div>
+          )}
         </div>
       )}
 
