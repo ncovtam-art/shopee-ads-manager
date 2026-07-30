@@ -27,6 +27,7 @@ export default function PageDetailPage() {
   const [totals, setTotals] = useState({ adSpend: 0, gmv: 0, commission: 0, orders: 0, profit: 0 });
   const [accessDenied, setAccessDenied] = useState(false);
   const [tab, setTab] = useState<"daily" | "campaigns">("campaigns");
+  const [onlySpend, setOnlySpend] = useState(false);
 
   useEffect(() => { if (id) fetchData(); }, [id, period]);
 
@@ -61,8 +62,8 @@ export default function PageDetailPage() {
       setTotals({ adSpend: tAd, gmv: tGmv, commission: tComm, orders: tOrd, profit: tComm - tAd });
     }
 
-    // Campaign breakdown via RPC
-    const { data: campData } = await supabase.rpc("get_page_campaigns", { p_page_id: pageId });
+    // Campaign breakdown via RPC — with date filter
+    const { data: campData } = await supabase.rpc("get_page_campaigns", { p_page_id: pageId, date_from: from, date_to: to });
     if (campData) {
       // Merge FB + Shopee by campaign name + sub_id1
       const merged = new Map<string, { campName: string; subId1: string; adSpend: number; gmv: number; commission: number; orders: number; sources: Set<string> }>();
@@ -121,7 +122,9 @@ export default function PageDetailPage() {
     if (c.source.includes("shopee")) ex.hasShopee = true;
     mergeMap.set(key, ex);
   });
-  const mergedCampaigns = Array.from(mergeMap.values()).sort((a, b) => (b.commission - b.adSpend) - (a.commission - a.adSpend));
+  const mergedCampaigns = Array.from(mergeMap.values())
+    .filter(c => !onlySpend || c.adSpend > 0)
+    .sort((a, b) => (b.commission - b.adSpend) - (a.commission - a.adSpend));
 
   return (
     <div>
@@ -169,14 +172,22 @@ export default function PageDetailPage() {
         </div>
       )}
 
-      {/* Tabs: Campaigns / Daily */}
-      <div className="flex gap-0.5 glass-card rounded-lg p-0.5 border border-[var(--border)] mb-4 w-fit">
-        <button onClick={() => setTab("campaigns")} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium ${tab==="campaigns"?"bg-[var(--accent)] text-white":"text-[var(--muted-foreground)]"}`}>
-          <Megaphone size={12} /> Campaigns ({campaigns.length})
-        </button>
-        <button onClick={() => setTab("daily")} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium ${tab==="daily"?"bg-[var(--accent)] text-white":"text-[var(--muted-foreground)]"}`}>
-          <Calendar size={12} /> Theo ngày ({daily.length})
-        </button>
+      {/* Tabs + filter */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex gap-0.5 glass-card rounded-lg p-0.5 border border-[var(--border)]">
+          <button onClick={() => setTab("campaigns")} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium ${tab==="campaigns"?"bg-[var(--accent)] text-white":"text-[var(--muted-foreground)]"}`}>
+            <Megaphone size={12} /> Campaigns ({mergedCampaigns.length})
+          </button>
+          <button onClick={() => setTab("daily")} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium ${tab==="daily"?"bg-[var(--accent)] text-white":"text-[var(--muted-foreground)]"}`}>
+            <Calendar size={12} /> Theo ngày ({daily.length})
+          </button>
+        </div>
+        {tab === "campaigns" && (
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" checked={onlySpend} onChange={e => setOnlySpend(e.target.checked)} className="accent-[var(--accent)] w-3.5 h-3.5" />
+            <span className="text-[11px] text-[var(--muted-foreground)]">Chỉ hiện có chi tiêu</span>
+          </label>
+        )}
       </div>
 
       {/* CAMPAIGNS TAB — style Affiliate Full */}
