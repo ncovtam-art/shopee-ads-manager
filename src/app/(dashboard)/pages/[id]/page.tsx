@@ -106,6 +106,9 @@ export default function PageDetailPage() {
 
   const campTotals = campaigns.reduce((a, c) => ({ ad: a.ad + c.adSpend, gmv: a.gmv + c.gmv, comm: a.comm + c.commission, orders: a.orders + c.orders, profit: a.profit + c.profit }), { ad: 0, gmv: 0, comm: 0, orders: 0, profit: 0 });
 
+  const fbCampaigns = campaigns.filter(c => c.source.includes("fb_ads")).sort((a, b) => b.adSpend - a.adSpend);
+  const shopeeCampaigns = campaigns.filter(c => c.source.includes("shopee")).sort((a, b) => b.commission - a.commission);
+
   return (
     <div>
       {/* Header */}
@@ -163,71 +166,105 @@ export default function PageDetailPage() {
       </div>
 
       {/* CAMPAIGNS TAB */}
-      {tab === "campaigns" && campaigns.length > 0 && (
-        <div className="glass-card rounded-2xl border border-[var(--border)] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px]">
-              <thead><tr className="border-b border-[var(--border)]">
-                <th className="w-10 px-3 py-2 text-[10px]">#</th>
-                <th className="text-left px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Campaign / Sub_id2</th>
-                <th className="text-left px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Sub_id1</th>
-                <th className="text-left px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Nguồn</th>
-                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Chi Ads</th>
-                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">GMV</th>
-                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Hoa hồng</th>
-                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Đơn</th>
-                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">Lợi nhuận</th>
-                <th className="text-right px-3 py-2 text-[10px] font-semibold text-[var(--muted-foreground)] uppercase">ROI</th>
-              </tr></thead>
-              <tbody>
-                {campaigns.map((c, i) => (
-                  <tr key={i} className="border-b border-[var(--border)] row-hover">
-                    <td className="px-3 py-2 text-center">
-                      <div className={`w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold ${c.profit > 0 ? "bg-green-500/15 text-green-400" : c.profit < 0 ? "bg-red-500/15 text-red-400" : c.commission > 0 ? "bg-indigo-500/15 text-indigo-400" : "bg-zinc-500/15 text-zinc-400"}`}>{i+1}</div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="text-xs font-mono font-medium">{c.name}</span>
-                    </td>
-                    <td className="px-3 py-2">
-                      {c.subId1 ? <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)]">{c.subId1}</span> : <span className="text-[10px] text-[var(--muted-foreground)]">—</span>}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex gap-1">
-                        {c.source.includes("fb_ads") && <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium">FB Ads</span>}
-                        {c.source.includes("shopee") && <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 font-medium">Shopee</span>}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs text-red-400">{c.adSpend > 0 ? formatCompact(c.adSpend) : "—"}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{c.gmv > 0 ? formatCompact(c.gmv) : "—"}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs text-indigo-400">{c.commission > 0 ? formatCompact(c.commission) : "—"}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs text-[var(--muted-foreground)]">{c.orders > 0 ? c.orders : "—"}</td>
-                    <td className="px-3 py-2 text-right">
-                      <span className={`font-mono text-xs font-bold ${c.profit > 0 ? "text-green-400" : c.profit < 0 ? "text-red-400" : "text-[var(--muted-foreground)]"}`}>
-                        {c.profit !== 0 ? (c.profit > 0 ? "+" : "") + formatCompact(c.profit) : "—"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {c.roi !== null ? <span className={`font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded ${c.roi >= 0 ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>{c.roi > 0 ? "+" : ""}{c.roi}%</span> : <span className="text-[10px] text-[var(--muted-foreground)]">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr className="border-t-2 border-[var(--border)] bg-[var(--muted)]">
-                <td className="px-3 py-2" /><td className="px-3 py-2 text-xs font-bold" colSpan={2}>TỔNG ({campaigns.length})</td>
-                <td className="px-3 py-2 text-right font-mono text-xs font-bold text-red-400">{formatCompact(campTotals.ad)}</td>
-                <td className="px-3 py-2 text-right font-mono text-xs font-bold">{formatCompact(campTotals.gmv)}</td>
-                <td className="px-3 py-2 text-right font-mono text-xs font-bold text-indigo-400">{formatCompact(campTotals.comm)}</td>
-                <td className="px-3 py-2 text-right font-mono text-xs font-bold">{campTotals.orders}</td>
-                <td className="px-3 py-2 text-right font-mono text-xs font-bold" style={{ color: campTotals.profit >= 0 ? "#22c55e" : "#ef4444" }}>{campTotals.profit > 0 ? "+" : ""}{formatCompact(campTotals.profit)}</td>
-                <td className="px-3 py-2" />
-              </tr></tfoot>
-            </table>
+      {tab === "campaigns" && (
+        <div>
+          {/* P&L Summary bar */}
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="glass-card rounded-lg p-3 border border-red-500/10 glow-red text-center">
+              <div className="text-[10px] text-[var(--muted-foreground)] mb-0.5">TỔNG CHI ADS</div>
+              <div className="font-mono text-lg font-bold text-red-400">{formatCompact(campTotals.ad)}</div>
+            </div>
+            <div className="glass-card rounded-lg p-3 border border-indigo-500/10 glow-purple text-center">
+              <div className="text-[10px] text-[var(--muted-foreground)] mb-0.5">TỔNG HOA HỒNG</div>
+              <div className="font-mono text-lg font-bold text-indigo-400">{formatCompact(campTotals.comm)}</div>
+            </div>
+            <div className={`glass-card rounded-lg p-3 border text-center ${campTotals.profit >= 0 ? "border-green-500/10 glow-green" : "border-red-500/10 glow-red"}`}>
+              <div className="text-[10px] text-[var(--muted-foreground)] mb-0.5">LỢI NHUẬN PAGE</div>
+              <div className="font-mono text-lg font-bold" style={{ color: campTotals.profit >= 0 ? "#22c55e" : "#ef4444" }}>{campTotals.profit > 0 ? "+" : ""}{formatCompact(campTotals.profit)}</div>
+            </div>
+          </div>
+
+          {/* Two tables side by side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* FB Ads - Chi tiêu */}
+            <div className="glass-card rounded-2xl border border-blue-500/10 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-[var(--border)] flex items-center gap-2 bg-blue-500/5">
+                <Megaphone size={13} className="text-blue-400" />
+                <span className="text-xs font-semibold text-blue-400">Chi tiêu FB Ads</span>
+                <span className="text-[10px] text-[var(--muted-foreground)] ml-auto">{fbCampaigns.length} campaigns</span>
+              </div>
+              <div className="overflow-y-auto max-h-[400px]">
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-[var(--card)]"><tr className="border-b border-[var(--border)]">
+                    <th className="w-8 px-2 py-2 text-[10px]">#</th>
+                    <th className="text-left px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">CAMPAIGN</th>
+                    <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">CHI TIÊU</th>
+                  </tr></thead>
+                  <tbody>
+                    {fbCampaigns.length === 0 ? (
+                      <tr><td colSpan={3} className="px-3 py-6 text-center text-[10px] text-[var(--muted-foreground)]">Chưa có dữ liệu FB Ads</td></tr>
+                    ) : fbCampaigns.map((c, i) => (
+                      <tr key={i} className="border-b border-[var(--border)] row-hover">
+                        <td className="px-2 py-1.5 text-center text-[10px] text-[var(--muted-foreground)]">{i+1}</td>
+                        <td className="px-2 py-1.5 text-xs font-mono">{c.name}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-xs text-red-400 font-semibold">{formatCompact(c.adSpend)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {fbCampaigns.length > 0 && (
+                    <tfoot><tr className="border-t-2 border-[var(--border)] bg-[var(--muted)]">
+                      <td className="px-2 py-1.5" /><td className="px-2 py-1.5 text-xs font-bold">TỔNG</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-xs font-bold text-red-400">{formatCompact(campTotals.ad)}</td>
+                    </tr></tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+
+            {/* Shopee - Doanh thu */}
+            <div className="glass-card rounded-2xl border border-orange-500/10 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-[var(--border)] flex items-center gap-2 bg-orange-500/5">
+                <ShoppingBag size={13} className="text-orange-400" />
+                <span className="text-xs font-semibold text-orange-400">Doanh thu Shopee Affiliate</span>
+                <span className="text-[10px] text-[var(--muted-foreground)] ml-auto">{shopeeCampaigns.length} sub_id2</span>
+              </div>
+              <div className="overflow-y-auto max-h-[400px]">
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-[var(--card)]"><tr className="border-b border-[var(--border)]">
+                    <th className="w-8 px-2 py-2 text-[10px]">#</th>
+                    <th className="text-left px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">SUB_ID2</th>
+                    <th className="text-left px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">SUB_ID1</th>
+                    <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">GMV</th>
+                    <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">HOA HỒNG</th>
+                    <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">ĐƠN</th>
+                  </tr></thead>
+                  <tbody>
+                    {shopeeCampaigns.length === 0 ? (
+                      <tr><td colSpan={6} className="px-3 py-6 text-center text-[10px] text-[var(--muted-foreground)]">Chưa có dữ liệu Shopee</td></tr>
+                    ) : shopeeCampaigns.map((c, i) => (
+                      <tr key={i} className="border-b border-[var(--border)] row-hover">
+                        <td className="px-2 py-1.5 text-center text-[10px] text-[var(--muted-foreground)]">{i+1}</td>
+                        <td className="px-2 py-1.5 text-xs font-mono">{c.name}</td>
+                        <td className="px-2 py-1.5">{c.subId1 ? <span className="text-[10px] font-mono text-[var(--muted-foreground)]">{c.subId1}</span> : <span className="text-[10px] text-[var(--muted-foreground)]">—</span>}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-xs">{c.gmv > 0 ? formatCompact(c.gmv) : "—"}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-xs text-indigo-400 font-semibold">{formatCompact(c.commission)}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-xs text-[var(--muted-foreground)]">{c.orders}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {shopeeCampaigns.length > 0 && (
+                    <tfoot><tr className="border-t-2 border-[var(--border)] bg-[var(--muted)]">
+                      <td className="px-2 py-1.5" /><td className="px-2 py-1.5 text-xs font-bold" colSpan={2}>TỔNG</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-xs font-bold">{formatCompact(campTotals.gmv)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-xs font-bold text-indigo-400">{formatCompact(campTotals.comm)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-xs font-bold">{campTotals.orders}</td>
+                    </tr></tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
           </div>
         </div>
-      )}
-
-      {tab === "campaigns" && campaigns.length === 0 && (
-        <div className="glass-card rounded-xl border border-[var(--border)] p-6 text-center text-xs text-[var(--muted-foreground)]">Chưa có dữ liệu campaign. Upload báo cáo FB Ads và Shopee cho page này.</div>
       )}
 
       {/* DAILY TAB */}
