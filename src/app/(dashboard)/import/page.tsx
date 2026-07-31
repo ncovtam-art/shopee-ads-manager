@@ -197,14 +197,15 @@ export default function ImportPage() {
                   {fbRows.map(r => (<tr key={r.id} className="border-b border-[var(--border)] row-hover"><td className="px-2 py-1.5 text-center"><input type="checkbox" checked={r.selected} onChange={() => setFbRows(fbRows.map(x => x.id===r.id?{...x,selected:!x.selected}:x))} /></td><td className="px-2 py-1.5 text-xs">{r.campaign_name}</td><td className="px-2 py-1.5 text-right font-mono text-xs text-red-400">{formatCompact(r.ad_spend)}</td></tr>))}
                 </tbody></table>
               ) : (
-                <table className="w-full min-w-[500px]"><thead className="sticky top-0 bg-[var(--card)]"><tr className="border-b border-[var(--border)]">
+                <table className="w-full min-w-[600px]"><thead className="sticky top-0 bg-[var(--card)]"><tr className="border-b border-[var(--border)]">
                   <th className="w-8 px-2 py-2"><input type="checkbox" checked={shopeeRows.every(r => r.selected)} onChange={e => setShopeeRows(shopeeRows.map(r => ({...r, selected: e.target.checked})))} /></th>
+                  <th className="text-left px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">SUB_ID1</th>
                   <th className="text-left px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">SUB_ID2</th>
                   <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">ĐƠN HÀNG</th>
                   <th className="text-right px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">HOA HỒNG</th>
                   <th className="text-left px-2 py-2 text-[10px] font-semibold text-[var(--muted-foreground)]">KÊNH</th>
                 </tr></thead><tbody>
-                  {shopeeRows.map(r => (<tr key={r.id} className="border-b border-[var(--border)] row-hover"><td className="px-2 py-1.5 text-center"><input type="checkbox" checked={r.selected} onChange={() => setShopeeRows(shopeeRows.map(x => x.id===r.id?{...x,selected:!x.selected}:x))} /></td><td className="px-2 py-1.5 text-xs font-mono">{r.sub_id2 || "—"}</td><td className="px-2 py-1.5 text-right font-mono text-xs text-green-400">{formatCompact(r.order_value)}</td><td className="px-2 py-1.5 text-right font-mono text-xs text-indigo-400">{formatCompact(r.net_commission)}</td><td className="px-2 py-1.5 text-[10px] text-[var(--muted-foreground)]">{r.channel || "—"}</td></tr>))}
+                  {shopeeRows.map(r => (<tr key={r.id} className="border-b border-[var(--border)] row-hover"><td className="px-2 py-1.5 text-center"><input type="checkbox" checked={r.selected} onChange={() => setShopeeRows(shopeeRows.map(x => x.id===r.id?{...x,selected:!x.selected}:x))} /></td><td className="px-2 py-1.5 text-xs font-mono text-[var(--muted-foreground)]">{r.sub_id1 || "—"}</td><td className="px-2 py-1.5 text-xs font-mono">{r.sub_id2 || "—"}</td><td className="px-2 py-1.5 text-right font-mono text-xs text-green-400">{formatCompact(r.order_value)}</td><td className="px-2 py-1.5 text-right font-mono text-xs text-indigo-400">{formatCompact(r.net_commission)}</td><td className="px-2 py-1.5 text-[10px] text-[var(--muted-foreground)]">{r.channel || "—"}</td></tr>))}
                 </tbody></table>
               )}
             </div>
