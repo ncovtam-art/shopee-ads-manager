@@ -107,17 +107,22 @@ export default function PagesPage() {
   const filtered = pages.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
   const totals = filtered.reduce((a, p) => ({ ad: a.ad + p.adSpend, comm: a.comm + p.commission, profit: a.profit + p.profit, orders: a.orders + p.orders }), { ad: 0, comm: 0, profit: 0, orders: 0 });
 
-  // Leaderboard: group by employee, sum profit
+  // Leaderboard: group by employee, sum profit — chỉ page có chi tiêu, bỏ page admin
+  const adminNames = ["minh tam", "ngọc", "ngoc", "minhtam"];
   const empProfit = new Map<string, { name: string; profit: number; pages: number; orders: number }>();
   pages.forEach(p => {
     const name = p.assignee_name || "Chưa giao";
+    // Bỏ page chưa giao, page admin, page không có chi tiêu
+    if (name === "Chưa giao") return;
+    if (adminNames.some(a => name.toLowerCase().includes(a))) return;
+    if (p.adSpend <= 0) return;
     const ex = empProfit.get(name) || { name, profit: 0, pages: 0, orders: 0 };
     ex.profit += p.profit;
     ex.pages += 1;
     ex.orders += p.orders;
     empProfit.set(name, ex);
   });
-  const leaderboard = Array.from(empProfit.values()).filter(e => e.name !== "Chưa giao").sort((a, b) => b.profit - a.profit);
+  const leaderboard = Array.from(empProfit.values()).sort((a, b) => b.profit - a.profit);
 
   return (
     <div>
