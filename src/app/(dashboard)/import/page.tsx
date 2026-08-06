@@ -51,7 +51,7 @@ export default function ImportPage() {
 
   const parseFb = (data: any[]) => {
     const rows: FbRow[] = data.map((row, i) => {
-      const campaign = findColumn(row, ["Tên chiến dịch", "Campaign name", "campaign_name"]);
+      const campaign = findColumn(row, ["Tên chiến dịch", "Campaign name", "campaign_name", "Tên nhóm quảng cáo", "Ad set name", "Tên quảng cáo", "Ad name"]);
       const spend = parseVNNumber(findColumn(row, ["Số tiền đã chi tiêu", "Amount spent", "amount_spent"]));
       return { id: i, campaign_name: campaign.trim(), ad_spend: spend, selected: true };
     }).filter(r => r.campaign_name);
