@@ -117,6 +117,41 @@ export default function ImportPage() {
     setMsg(`✅ Đã xoá`); fetchBatches();
   };
 
+  const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
+
+  const toggleBatch = (id: string) => setSelectedBatches(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggleAllBatches = () => setSelectedBatches(prev => prev.length === batches.length ? [] : batches.map(b => b.id));
+
+  const deleteBulk = async () => {
+    if (!selectedBatches.length) return;
+    if (!confirm(`Xoá ${selectedBatches.length} lần import đã chọn?\nDữ liệu sẽ bị xoá hoàn toàn.`)) return;
+    const toDelete = batches.filter(b => selectedBatches.includes(b.id));
+    for (const b of toDelete) {
+      if (b.type === "fb_ads") await supabase.from("fb_ads_data").delete().eq("batch_id", b.id);
+      else await supabase.from("shopee_affiliate_data").delete().eq("batch_id", b.id);
+    }
+    await supabase.from("import_batches").delete().in("id", selectedBatches);
+    setSelectedBatches([]); setMsg(`✅ Đã xoá ${toDelete.length} lần import`); fetchBatches();
+  };
+
+  // Cảnh báo ngày chưa up báo cáo (7 ngày gần nhất)
+  const getMissingDays = () => {
+    const uploaded = new Set<string>();
+    batches.forEach(b => {
+      const d = b.report_date || (b.created_at ? b.created_at.split("T")[0] : null);
+      if (d) uploaded.add(d);
+    });
+    const missing: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const ds = d.toISOString().split("T")[0];
+      if (!uploaded.has(ds)) missing.push(ds);
+    }
+    return missing;
+  };
+  const missingDays = getMissingDays();
+
   const hasData = tab === "fb" ? fbRows.length > 0 : shopeeRows.length > 0;
   const selCount = tab === "fb" ? fbRows.filter(r => r.selected).length : shopeeRows.filter(r => r.selected).length;
   const fbTotal = fbRows.filter(r => r.selected).reduce((s, r) => s + r.ad_spend, 0);
@@ -154,6 +189,30 @@ export default function ImportPage() {
           <AlertTriangle size={20} className="text-amber-400 mx-auto mb-2" />
           <div className="text-xs text-amber-400 font-medium">Chọn Page trước khi upload file</div>
           <div className="text-[10px] text-[var(--muted-foreground)] mt-1">Nếu chưa có Page, vào <a href="/pages" className="text-[var(--accent)] underline">Pages</a> để thêm.</div>
+        </div>
+      )}
+
+      {/* ⚠️ Cảnh báo ngày chưa up báo cáo */}
+      {step === 1 && missingDays.length > 0 && (
+        <div className="glass-card rounded-xl border border-amber-500/20 glow-amber p-4 mb-4">
+          <div className="flex items-center gap-2 mb-2.5">
+            <AlertTriangle size={15} className="text-amber-400" />
+            <span className="text-xs font-semibold text-amber-400">Có {missingDays.length} ngày chưa upload báo cáo (7 ngày gần nhất)</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {missingDays.map(d => {
+              const dateObj = new Date(d);
+              const isToday = d === new Date().toISOString().split("T")[0];
+              return (
+                <button key={d} onClick={() => { setReportDate(d); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all hover:scale-105 ${isToday ? "bg-amber-500/15 text-amber-400 border border-amber-500/30" : "bg-[var(--muted)] text-[var(--muted-foreground)] border border-[var(--border)] hover:border-amber-500/30 hover:text-amber-400"}`}>
+                  {isToday && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 pulse-dot" />}
+                  {isToday ? "Hôm nay" : dateObj.toLocaleDateString("vi-VN", { weekday: "short", day: "numeric", month: "numeric" })}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[10px] text-[var(--muted-foreground)] mt-2">Bấm vào ngày để chọn nhanh ngày báo cáo, rồi upload file.</div>
         </div>
       )}
 
@@ -246,16 +305,30 @@ export default function ImportPage() {
       {/* History */}
       {step === 1 && batches.length > 0 && (
         <div className="glass-card rounded-xl border border-[var(--border)] overflow-hidden">
-          <div className="px-3 py-2 border-b border-[var(--border)]"><span className="text-xs font-semibold">Lịch sử import</span></div>
+          <div className="px-3 py-2 border-b border-[var(--border)] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={selectedBatches.length === batches.length && batches.length > 0} onChange={toggleAllBatches} className="accent-[var(--accent)]" />
+              <span className="text-xs font-semibold">Lịch sử import</span>
+              <span className="text-[10px] text-[var(--muted-foreground)]">({batches.length})</span>
+            </div>
+            {selectedBatches.length > 0 && (
+              <button onClick={deleteBulk} className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors">
+                <Trash2 size={11} /> Xoá {selectedBatches.length} mục
+              </button>
+            )}
+          </div>
           {batches.map(b => (
-            <div key={b.id} className="px-3 py-2 flex items-center gap-2 border-b border-[var(--border)] text-xs row-hover">
+            <div key={b.id} className={`px-3 py-2 flex items-center gap-2 border-b border-[var(--border)] text-xs row-hover ${selectedBatches.includes(b.id) ? "bg-red-500/5" : ""}`}>
+              <input type="checkbox" checked={selectedBatches.includes(b.id)} onChange={() => toggleBatch(b.id)} className="accent-[var(--accent)]" />
               {b.type === "fb_ads" ? <Megaphone size={12} className="text-[#1877f2]" /> : <ShoppingBag size={12} className="text-[#ee4d2d]" />}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="font-medium truncate">{b.filename}</span>
                   {(b.pages as any)?.name && <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--accent)]/10 text-[var(--accent)]">{(b.pages as any).name}</span>}
                 </div>
-                <div className="text-[10px] text-[var(--muted-foreground)]">{new Date(b.created_at).toLocaleString("vi-VN")} · {b.total_rows} dòng</div>
+                <div className="text-[10px] text-[var(--muted-foreground)]">
+                  {b.report_date ? `📅 ${new Date(b.report_date).toLocaleDateString("vi-VN")}` : new Date(b.created_at).toLocaleDateString("vi-VN")} · {b.total_rows} dòng
+                </div>
               </div>
               <button onClick={() => deleteBatch(b)} className="flex items-center gap-0.5 px-2 py-1 rounded text-[10px] text-red-400 hover:bg-red-500/10"><Trash2 size={10} /> Xoá</button>
             </div>
