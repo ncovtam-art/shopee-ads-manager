@@ -24,6 +24,7 @@ export default function ImportPage() {
   const [dragOver, setDragOver] = useState(false);
   const [pages, setPages] = useState<PageOption[]>([]);
   const [selectedPageId, setSelectedPageId] = useState("");
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
 
   useEffect(() => { fetchBatches(); fetchPages(); }, []);
 
@@ -82,7 +83,7 @@ export default function ImportPage() {
     try {
       const { data: batch, error: bErr } = await supabase.from("import_batches").insert({ filename: fileName, type: "fb_ads", total_rows: selected.length, matched_rows: selected.length, unmatched_rows: 0, status: "COMPLETED", created_by: user.id, page_id: selectedPageId }).select().single();
       if (bErr || !batch) { setMsg("Lỗi: " + (bErr?.message || "Tạo batch thất bại")); setImporting(false); return; }
-      const inserts = selected.map(r => ({ batch_id: batch.id, campaign_name: r.campaign_name, ad_spend: r.ad_spend, page_id: selectedPageId }));
+      const inserts = selected.map(r => ({ batch_id: batch.id, campaign_name: r.campaign_name, ad_spend: r.ad_spend, page_id: selectedPageId, report_date: reportDate }));
       const { error } = await supabase.from("fb_ads_data").insert(inserts);
       if (error) setMsg("Lỗi: " + error.message);
       else { setMsg(`✅ Import ${selected.length} chiến dịch FB thành công!`); setStep(3); fetchBatches(); }
@@ -100,7 +101,7 @@ export default function ImportPage() {
       const matched = selected.filter(r => r.sub_id2).length;
       const { data: batch, error: bErr } = await supabase.from("import_batches").insert({ filename: fileName, type: "shopee_affiliate", total_rows: selected.length, matched_rows: matched, unmatched_rows: selected.length - matched, status: "COMPLETED", created_by: user.id, page_id: selectedPageId }).select().single();
       if (bErr || !batch) { setMsg("Lỗi: " + (bErr?.message || "Tạo batch thất bại")); setImporting(false); return; }
-      const inserts = selected.map(r => ({ batch_id: batch.id, sub_id1: r.sub_id1, sub_id2: r.sub_id2, order_value: r.order_value, net_commission: r.net_commission, page_id: selectedPageId }));
+      const inserts = selected.map(r => ({ batch_id: batch.id, sub_id1: r.sub_id1, sub_id2: r.sub_id2, order_value: r.order_value, net_commission: r.net_commission, page_id: selectedPageId, report_date: reportDate }));
       const { error } = await supabase.from("shopee_affiliate_data").insert(inserts);
       if (error) setMsg("Lỗi: " + error.message);
       else { setMsg(`✅ Import ${selected.length} đơn Shopee thành công!`); setStep(3); fetchBatches(); }
@@ -137,6 +138,11 @@ export default function ImportPage() {
             {pages.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
+        <div className="max-w-[160px]">
+          <label className="block text-[10px] text-[var(--muted-foreground)] mb-1 font-medium">NGÀY BÁO CÁO *</label>
+          <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)} max={new Date().toISOString().split("T")[0]}
+            className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[var(--accent)]" />
+        </div>
         <div className="flex gap-0.5 glass-card rounded-md p-0.5 border border-[var(--border)] self-end">
           <button onClick={() => { setTab("fb"); reset(); }} className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all ${tab === "fb" ? "bg-[#1877f2] text-white" : "text-[var(--muted-foreground)]"}`}><Megaphone size={13} /> FB Ads</button>
           <button onClick={() => { setTab("shopee"); reset(); }} className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all ${tab === "shopee" ? "bg-[#ee4d2d] text-white" : "text-[var(--muted-foreground)]"}`}><ShoppingBag size={13} /> Shopee</button>
@@ -161,6 +167,7 @@ export default function ImportPage() {
             <div className="p-10 flex flex-col items-center text-center">
               <Upload size={28} style={{ color: tab === "fb" ? "#1877f2" : "#ee4d2d" }} className="mb-3" />
               <div className="text-sm font-semibold mb-1">Upload {tab === "fb" ? "FB Ads" : "Shopee Affiliate"} cho page: <span className="text-[var(--accent)]">{pages.find(p => p.id === selectedPageId)?.name}</span></div>
+              <div className="text-xs text-[var(--muted-foreground)] mb-1">Ngày báo cáo: <span className="font-semibold text-[var(--foreground)]">{new Date(reportDate).toLocaleDateString("vi-VN")}</span></div>
               <div className="text-[10px] text-[var(--muted-foreground)]">Kéo thả hoặc bấm chọn file .csv</div>
             </div>
           </label>

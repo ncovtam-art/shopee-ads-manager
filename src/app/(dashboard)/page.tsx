@@ -11,23 +11,25 @@ type PageRow = { name: string; adSpend: number; commission: number; profit: numb
 
 const periods: { k: Period; l: string }[] = [
   { k: "today", l: "Hôm nay" }, { k: "yesterday", l: "Hôm qua" }, { k: "7d", l: "7N" },
-  { k: "30d", l: "30N" }, { k: "this_month", l: "Tháng này" }, { k: "last_month", l: "Tháng trước" }, { k: "all", l: "Tất cả" },
+  { k: "30d", l: "30N" }, { k: "this_month", l: "Tháng này" }, { k: "last_month", l: "Tháng trước" }, { k: "all", l: "Tất cả" }, { k: "custom", l: "📅 Tùy chỉnh" },
 ];
 
 export default function DashboardPage() {
   const supabase = createClient();
   const [period, setPeriod] = useState<Period>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [summary, setSummary] = useState({ adSpend: 0, gmv: 0, commission: 0, orders: 0, pages: 0 });
   const [pageRows, setPageRows] = useState<PageRow[]>([]);
   const [fbBatches, setFbBatches] = useState(0);
   const [shopeeBatches, setShopeeBatches] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { fetchAll(); }, [period]);
+  useEffect(() => { if (period !== "custom" || (customFrom && customTo)) fetchAll(); }, [period, customFrom, customTo]);
 
   const fetchAll = async () => {
     setLoading(true);
-    const { from, to } = getDateRange(period);
+    const { from, to } = getDateRange(period, customFrom, customTo);
 
     const [{ data: dashData }, { data: pageData }] = await Promise.all([
       supabase.rpc("get_dashboard_summary", { date_from: from, date_to: to }),
@@ -86,6 +88,13 @@ export default function DashboardPage() {
           <div className="flex flex-wrap gap-0.5 glass-card rounded-lg p-0.5 border border-[var(--border)]">
             {periods.map(p => (<button key={p.k} onClick={() => setPeriod(p.k)} className={`px-2 py-1.5 rounded-md text-[10px] font-medium transition-all ${period===p.k?"bg-gradient-to-r from-[#ee4d2d] to-[#ff6b47] text-white shadow-sm":"text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}>{p.l}</button>))}
           </div>
+          {period === "custom" && (
+            <div className="flex items-center gap-1.5 glass-card rounded-lg px-2 py-1 border border-[var(--border)]">
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-transparent text-[10px] outline-none" />
+              <span className="text-[10px] text-[var(--muted-foreground)]">→</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-transparent text-[10px] outline-none" />
+            </div>
+          )}
           <div className="flex items-center gap-1 glass-card rounded-lg px-2.5 py-1.5 border border-[var(--border)]">
             <Megaphone size={11} className="text-[#1877f2]" /><span className="text-[10px] text-[var(--muted-foreground)] font-mono">{fbBatches}</span>
             <span className="w-px h-3 bg-[var(--border)] mx-1" /><ShoppingBag size={11} className="text-[#ee4d2d]" /><span className="text-[10px] text-[var(--muted-foreground)] font-mono">{shopeeBatches}</span>

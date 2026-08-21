@@ -13,7 +13,7 @@ type CampRow = { name: string; subId1: string; source: string; adSpend: number; 
 
 const periods: { k: Period; l: string }[] = [
   { k: "today", l: "Hôm nay" }, { k: "yesterday", l: "Hôm qua" }, { k: "7d", l: "7N" },
-  { k: "30d", l: "30N" }, { k: "this_month", l: "Tháng này" }, { k: "last_month", l: "Tháng trước" }, { k: "all", l: "Tất cả" },
+  { k: "30d", l: "30N" }, { k: "this_month", l: "Tháng này" }, { k: "last_month", l: "Tháng trước" }, { k: "all", l: "Tất cả" }, { k: "custom", l: "📅" },
 ];
 
 export default function PageDetailPage() {
@@ -24,12 +24,14 @@ export default function PageDetailPage() {
   const [campaigns, setCampaigns] = useState<CampRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<Period>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [totals, setTotals] = useState({ adSpend: 0, gmv: 0, commission: 0, orders: 0, profit: 0 });
   const [accessDenied, setAccessDenied] = useState(false);
   const [tab, setTab] = useState<"daily" | "campaigns">("campaigns");
   const [onlySpend, setOnlySpend] = useState(false);
 
-  useEffect(() => { if (id) fetchData(); }, [id, period]);
+  useEffect(() => { if (id && (period !== "custom" || (customFrom && customTo))) fetchData(); }, [id, period, customFrom, customTo]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -47,7 +49,7 @@ export default function PageDetailPage() {
     if (!isAdmin && pageData.assignee_id !== user.id) { setAccessDenied(true); setLoading(false); return; }
     setPage(pageData);
 
-    const { from, to } = getDateRange(period);
+    const { from, to } = getDateRange(period, customFrom, customTo);
 
     // Daily data via RPC
     const { data: dailyData } = await supabase.rpc("get_page_daily", { p_page_id: pageId, date_from: from, date_to: to });
@@ -136,8 +138,17 @@ export default function PageDetailPage() {
       </div>
 
       {/* Date filter */}
-      <div className="flex flex-wrap gap-0.5 glass-card rounded-lg p-0.5 border border-[var(--border)] mb-4 w-fit">
-        {periods.map(p => (<button key={p.k} onClick={() => setPeriod(p.k)} className={`px-2 py-1.5 rounded-md text-[10px] font-medium transition-all ${period===p.k?"bg-gradient-to-r from-[#ee4d2d] to-[#ff6b47] text-white shadow-sm":"text-[var(--muted-foreground)]"}`}>{p.l}</button>))}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <div className="flex flex-wrap gap-0.5 glass-card rounded-lg p-0.5 border border-[var(--border)] w-fit">
+          {periods.map(p => (<button key={p.k} onClick={() => setPeriod(p.k)} className={`px-2 py-1.5 rounded-md text-[10px] font-medium transition-all ${period===p.k?"bg-gradient-to-r from-[#ee4d2d] to-[#ff6b47] text-white shadow-sm":"text-[var(--muted-foreground)]"}`}>{p.l}</button>))}
+        </div>
+        {period === "custom" && (
+          <div className="flex items-center gap-1.5 glass-card rounded-lg px-2 py-1 border border-[var(--border)]">
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-transparent text-[10px] outline-none" />
+            <span className="text-[10px] text-[var(--muted-foreground)]">→</span>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-transparent text-[10px] outline-none" />
+          </div>
+        )}
       </div>
 
       {/* KPI */}
