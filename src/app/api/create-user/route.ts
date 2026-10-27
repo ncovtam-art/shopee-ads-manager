@@ -1,50 +1,39 @@
-import { createServerSupabase, getAuthUser } from "@/lib/supabase-server";
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { getAuthUser } from "@/lib/supabase-server";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { handleCreateUser } from "@/lib/create-user-handler";
 
-export async function POST(req: NextRequest) {
-  try {
-    // Auth check
-    const { user, profile } = await getAuthUser();
-    if (!user) return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
-    if (!profile || (profile.role !== "ADMIN" && profile.role !== "LEADER")) {
-      return NextResponse.json({ error: "Không có quyền tạo nhân viên" }, { status: 403 });
-    }
-
-    const { email, password, name, phone, role } = await req.json();
-    if (!email || !password || !name) {
-      return NextResponse.json({ error: "Thiếu email, password hoặc tên" }, { status: 400 });
-    }
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json({ error: "Thiếu Supabase config" }, { status: 500 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey, {
+export async function POST(request: Request) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  let client: SupabaseClient | undefined;
+  const admin = () => {
+    if (!url || !key) throw new Error("Administration configuration unavailable");
+    return client ??= createClient(url, key, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-
-    const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { name, role } },
-    });
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    if (!data.user) return NextResponse.json({ error: "Không tạo được user" }, { status: 400 });
-
-    const adminKey = process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseKey;
-    const adminClient = createClient(supabaseUrl, adminKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
-    await adminClient.from("profiles").update({
-      name, phone: phone || null, role: role || "EMPLOYEE",
-    }).eq("id", data.user.id);
-
-    return NextResponse.json({ success: true, userId: data.user.id });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Lỗi server" }, { status: 500 });
-  }
+  };
+  return handleCreateUser(request, {
+    configurationReady: Boolean(url && key),
+    async resolveActor() {
+      const { user, profile } = await getAuthUser();
+      return user && profile ? { id: user.id, role: profile.role, status: profile.status } : null;
+    },
+    async createAccount(input) {
+      const { data, error } = await admin().auth.admin.createUser({
+        email: input.email, password: input.password,
+        user_metadata: { name: input.name }, email_confirm: true,
+      });
+      return error ? null : data.user?.id ?? null;
+    },
+    async updateProfile(id, input) {
+      const { data, error } = await admin().from("profiles")
+        .update({ name: input.name, phone: input.phone, role: input.role })
+        .eq("id", id).select("id").single();
+      return !error && data?.id === id;
+    },
+    async removeNewAccount(id) {
+      const { error } = await admin().auth.admin.deleteUser(id);
+      return !error;
+    },
+  }, process.env.APP_ORIGIN);
 }

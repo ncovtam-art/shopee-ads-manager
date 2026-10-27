@@ -1,7 +1,9 @@
 "use client";
-import { useState, useEffect } from "react";
-import { Upload, Check, Trash2, AlertTriangle, Megaphone, ShoppingBag, FileText, ChevronRight, X, ChevronDown } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Upload, Check, Trash2, AlertTriangle, Megaphone, ShoppingBag, FileText, X } from "lucide-react";
 import { createClient } from "@/lib/supabase";
+import Link from "next/link";
+import type { ImportBatch } from "@/lib/data-types";
 import { formatCompact, parseVNNumber, findColumn } from "@/lib/finance";
 import Papa from "papaparse";
 
@@ -20,37 +22,40 @@ export default function ImportPage() {
   const [shopeeRows, setShopeeRows] = useState<ShopeeRow[]>([]);
   const [importing, setImporting] = useState(false);
   const [msg, setMsg] = useState("");
-  const [batches, setBatches] = useState<any[]>([]);
+  const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [pages, setPages] = useState<PageOption[]>([]);
   const [selectedPageId, setSelectedPageId] = useState("");
   const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
 
-  useEffect(() => { fetchBatches(); fetchPages(); }, []);
 
-  const fetchPages = async () => {
-    const { data } = await supabase.from("pages").select("id, name").eq("status", "ACTIVE").order("name");
+  const fetchPages = useCallback(() => {
+    return supabase.from("pages").select("id, name").eq("status", "ACTIVE").order("name").then(({ data }) => {
     if (data) setPages(data);
-  };
+    });
+  }, [supabase]);
 
-  const fetchBatches = async () => {
-    const { data } = await supabase.from("import_batches").select("*, pages:page_id(name)").in("type", ["fb_ads", "shopee_affiliate"]).order("created_at", { ascending: false }).limit(30);
-    if (data) setBatches(data);
-  };
+  const fetchBatches = useCallback(() => {
+    return supabase.from("import_batches").select("*, pages:page_id(name)").in("type", ["fb_ads", "shopee_affiliate"]).order("created_at", { ascending: false }).limit(30).then(({ data }) => {
+    if (data) setBatches(data as unknown as ImportBatch[]);
+    });
+  }, [supabase]);
+
+  useEffect(() => { fetchBatches(); fetchPages(); }, [fetchBatches, fetchPages]);
 
   const reset = () => { setFbRows([]); setShopeeRows([]); setFileName(""); setMsg(""); setStep(1); };
 
   const handleFile = (file: File) => {
     if (!selectedPageId) { setMsg("Vui lòng chọn Page trước khi upload file"); return; }
     setFileName(file.name); setMsg("");
-    Papa.parse(file, { header: true, skipEmptyLines: true, complete: (r) => {
+    Papa.parse<Record<string, unknown>>(file, { header: true, skipEmptyLines: true, complete: (r) => {
       if (!r.data?.length) { setMsg("File trống"); return; }
       if (tab === "fb") parseFb(r.data); else parseShopee(r.data);
       setStep(2);
     }});
   };
 
-  const parseFb = (data: any[]) => {
+  const parseFb = (data: Record<string, unknown>[]) => {
     const rows: FbRow[] = data.map((row, i) => {
       const campaign = findColumn(row, ["Tên chiến dịch", "Campaign name", "campaign_name", "Tên nhóm quảng cáo", "Ad set name", "Tên quảng cáo", "Ad name"]);
       const spend = parseVNNumber(findColumn(row, ["Số tiền đã chi tiêu", "Amount spent", "amount_spent"]));
@@ -61,7 +66,7 @@ export default function ImportPage() {
     setFbRows(Array.from(merged.values()).map((r, i) => ({ ...r, id: i })));
   };
 
-  const parseShopee = (data: any[]) => {
+  const parseShopee = (data: Record<string, unknown>[]) => {
     const rows: ShopeeRow[] = data.map((row, i) => ({
       id: i,
       sub_id1: findColumn(row, ["Sub_id1", "sub_id1"]).trim(),
@@ -74,47 +79,38 @@ export default function ImportPage() {
     setShopeeRows(rows);
   };
 
-  const importFb = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setMsg("Chưa đăng nhập"); return; }
-    const selected = fbRows.filter(r => r.selected);
-    if (!selected.length) { setMsg("Không có dòng hợp lệ"); return; }
-    setImporting(true);
+  const importSelected = async (type: "fb_ads" | "shopee_affiliate") => {
+    const rows = type === "fb_ads"
+      ? fbRows.filter(row => row.selected).map(row => ({ campaign_name: row.campaign_name, ad_spend: row.ad_spend }))
+      : shopeeRows.filter(row => row.selected).map(row => ({ sub_id1: row.sub_id1, sub_id2: row.sub_id2, channel: row.channel, order_value: row.order_value, net_commission: row.net_commission }));
+    if (!selectedPageId || !rows.length || rows.length > 10000) {
+      setMsg("Chọn Page và từ 1 đến 10.000 dòng hợp lệ cho mỗi lần import."); return;
+    }
+    setImporting(true); setMsg("");
     try {
-      const { data: batch, error: bErr } = await supabase.from("import_batches").insert({ filename: fileName, type: "fb_ads", total_rows: selected.length, matched_rows: selected.length, unmatched_rows: 0, status: "COMPLETED", created_by: user.id, page_id: selectedPageId }).select().single();
-      if (bErr || !batch) { setMsg("Lỗi: " + (bErr?.message || "Tạo batch thất bại")); setImporting(false); return; }
-      const inserts = selected.map(r => ({ batch_id: batch.id, campaign_name: r.campaign_name, ad_spend: r.ad_spend, page_id: selectedPageId, report_date: reportDate }));
-      const { error } = await supabase.from("fb_ads_data").insert(inserts);
-      if (error) setMsg("Lỗi: " + error.message);
-      else { setMsg(`✅ Import ${selected.length} chiến dịch FB thành công!`); setStep(3); fetchBatches(); }
-    } catch (e: any) { setMsg("Lỗi: " + e?.message); }
-    setImporting(false);
+      const { data, error } = await supabase.rpc("import_report_batch_v1", {
+        p_filename: fileName, p_type: type, p_page_id: selectedPageId,
+        p_report_date: reportDate, p_rows: rows,
+      });
+      const result = Array.isArray(data) ? data[0] : null;
+      if (error || !result || result.imported_rows !== rows.length) {
+        setMsg("Không hoàn tất import. Kiểm tra dữ liệu và quyền truy cập; nếu lỗi tiếp diễn, liên hệ quản trị viên."); return;
+      }
+      setMsg(result.duplicate
+        ? "Báo cáo giống nội dung này đã tồn tại cho Page/ngày đã chọn; không ghi thêm dữ liệu."
+        : `✅ Đã import ${result.imported_rows} dòng thành công.`);
+      setStep(3); await fetchBatches();
+    } catch { setMsg("Không xác nhận được kết quả. Kiểm tra lịch sử trước khi thử lại; báo cáo trùng sẽ không ghi thêm."); }
+    finally { setImporting(false); }
   };
+  const importFb = () => importSelected("fb_ads");
+  const importShopee = () => importSelected("shopee_affiliate");
 
-  const importShopee = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setMsg("Chưa đăng nhập"); return; }
-    const selected = shopeeRows.filter(r => r.selected);
-    if (!selected.length) { setMsg("Không có dòng hợp lệ"); return; }
-    setImporting(true);
-    try {
-      const matched = selected.filter(r => r.sub_id2).length;
-      const { data: batch, error: bErr } = await supabase.from("import_batches").insert({ filename: fileName, type: "shopee_affiliate", total_rows: selected.length, matched_rows: matched, unmatched_rows: selected.length - matched, status: "COMPLETED", created_by: user.id, page_id: selectedPageId }).select().single();
-      if (bErr || !batch) { setMsg("Lỗi: " + (bErr?.message || "Tạo batch thất bại")); setImporting(false); return; }
-      const inserts = selected.map(r => ({ batch_id: batch.id, sub_id1: r.sub_id1, sub_id2: r.sub_id2, order_value: r.order_value, net_commission: r.net_commission, page_id: selectedPageId, report_date: reportDate }));
-      const { error } = await supabase.from("shopee_affiliate_data").insert(inserts);
-      if (error) setMsg("Lỗi: " + error.message);
-      else { setMsg(`✅ Import ${selected.length} đơn Shopee thành công!`); setStep(3); fetchBatches(); }
-    } catch (e: any) { setMsg("Lỗi: " + e?.message); }
-    setImporting(false);
-  };
-
-  const deleteBatch = async (b: any) => {
-    if (!confirm(`Xoá "${b.filename}"?`)) return;
-    if (b.type === "fb_ads") await supabase.from("fb_ads_data").delete().eq("batch_id", b.id);
-    else await supabase.from("shopee_affiliate_data").delete().eq("batch_id", b.id);
-    await supabase.from("import_batches").delete().eq("id", b.id);
-    setMsg(`✅ Đã xoá`); fetchBatches();
+  const deleteBatch = async (batch: ImportBatch) => {
+    if (!confirm(`Xoá "${batch.filename}"?`)) return;
+    const { data, error } = await supabase.rpc("delete_import_batches_v1", { p_ids: [batch.id] });
+    if (error || data !== 1) { setMsg("Chưa xác nhận xóa. Kiểm tra quyền và tải lại lịch sử."); return; }
+    setMsg("✅ Đã xóa batch và dữ liệu liên quan."); await fetchBatches();
   };
 
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
@@ -123,15 +119,12 @@ export default function ImportPage() {
   const toggleAllBatches = () => setSelectedBatches(prev => prev.length === batches.length ? [] : batches.map(b => b.id));
 
   const deleteBulk = async () => {
-    if (!selectedBatches.length) return;
-    if (!confirm(`Xoá ${selectedBatches.length} lần import đã chọn?\nDữ liệu sẽ bị xoá hoàn toàn.`)) return;
-    const toDelete = batches.filter(b => selectedBatches.includes(b.id));
-    for (const b of toDelete) {
-      if (b.type === "fb_ads") await supabase.from("fb_ads_data").delete().eq("batch_id", b.id);
-      else await supabase.from("shopee_affiliate_data").delete().eq("batch_id", b.id);
+    if (!selectedBatches.length || !confirm(`Xoá ${selectedBatches.length} lần import đã chọn?`)) return;
+    const { data, error } = await supabase.rpc("delete_import_batches_v1", { p_ids: selectedBatches });
+    if (error || data !== selectedBatches.length) {
+      setMsg("Chưa xác nhận xóa. Danh sách hoặc quyền có thể đã thay đổi; tải lại lịch sử."); return;
     }
-    await supabase.from("import_batches").delete().in("id", selectedBatches);
-    setSelectedBatches([]); setMsg(`✅ Đã xoá ${toDelete.length} lần import`); fetchBatches();
+    setSelectedBatches([]); setMsg(`✅ Đã xóa ${data} batch và dữ liệu liên quan.`); await fetchBatches();
   };
 
   // Cảnh báo ngày chưa up báo cáo (7 ngày gần nhất)
@@ -152,7 +145,6 @@ export default function ImportPage() {
   };
   const missingDays = getMissingDays();
 
-  const hasData = tab === "fb" ? fbRows.length > 0 : shopeeRows.length > 0;
   const selCount = tab === "fb" ? fbRows.filter(r => r.selected).length : shopeeRows.filter(r => r.selected).length;
   const fbTotal = fbRows.filter(r => r.selected).reduce((s, r) => s + r.ad_spend, 0);
   const spComm = shopeeRows.filter(r => r.selected).reduce((s, r) => s + r.net_commission, 0);
@@ -188,7 +180,7 @@ export default function ImportPage() {
         <div className="glass-card rounded-xl border border-amber-500/20 p-6 text-center mb-4">
           <AlertTriangle size={20} className="text-amber-400 mx-auto mb-2" />
           <div className="text-xs text-amber-400 font-medium">Chọn Page trước khi upload file</div>
-          <div className="text-[10px] text-[var(--muted-foreground)] mt-1">Nếu chưa có Page, vào <a href="/pages" className="text-[var(--accent)] underline">Pages</a> để thêm.</div>
+          <div className="text-[10px] text-[var(--muted-foreground)] mt-1">Nếu chưa có Page, vào <Link href="/pages" className="text-[var(--accent)] underline">Pages</Link> để thêm.</div>
         </div>
       )}
 
@@ -220,7 +212,7 @@ export default function ImportPage() {
       {step === 1 && selectedPageId && (
         <div className={`glass-card border rounded-xl mb-4 transition-colors ${dragOver ? "border-[var(--accent)]" : "border-[var(--border)]"}`}
           onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
-          onDrop={e => { e.preventDefault(); setDragOver(false); e.dataTransfer.files?.[0] && handleFile(e.dataTransfer.files[0]); }}>
+          onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]); }}>
           <label className="block cursor-pointer">
             <input type="file" accept=".csv" className="hidden" onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
             <div className="p-10 flex flex-col items-center text-center">
@@ -324,7 +316,7 @@ export default function ImportPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="font-medium truncate">{b.filename}</span>
-                  {(b.pages as any)?.name && <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--accent)]/10 text-[var(--accent)]">{(b.pages as any).name}</span>}
+                  {b.pages?.name && <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--accent)]/10 text-[var(--accent)]">{b.pages.name}</span>}
                 </div>
                 <div className="text-[10px] text-[var(--muted-foreground)]">
                   {b.report_date ? `📅 ${new Date(b.report_date).toLocaleDateString("vi-VN")}` : new Date(b.created_at).toLocaleDateString("vi-VN")} · {b.total_rows} dòng

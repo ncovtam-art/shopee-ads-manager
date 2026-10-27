@@ -1,6 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
-import { Users, Plus, Search, X, Shield, User, Phone, Mail, MoreHorizontal } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Plus, Search, X } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 
 type Profile = { id: string; name: string; email: string; phone: string | null; role: string; status: string; join_date: string };
@@ -14,20 +14,29 @@ export default function EmployeesPage() {
   const [form, setForm] = useState({ name: "", email: "", phone: "", role: "EMPLOYEE", password: "" });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
-  const [editId, setEditId] = useState<string | null>(null);
+  const [actor, setActor] = useState<{ id: string; role: string } | null>(null);
+  const [error, setError] = useState("");
 
-  const fetchEmployees = async () => {
-    setLoading(true);
-    const { data } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
+  const fetchEmployees = useCallback(() => {
+    return supabase.auth.getUser().then(async ({ data: { user } }) => {
+    if (!user) { setError("Chưa đăng nhập."); setLoading(false); return; }
+    const { data: profile } = await supabase.from("profiles").select("id, role, status").eq("id", user.id).single();
+    if (!profile || profile.status !== "ACTIVE" || !["ADMIN", "LEADER"].includes(profile.role)) {
+      setError("Bạn không có quyền quản lý nhân viên."); setLoading(false); return;
+    }
+    setActor(profile);
+    const { data, error } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
+    if (error) setError("Không đọc được danh sách nhân viên. Kiểm tra quyền truy cập.");
     if (data) setEmployees(data);
     setLoading(false);
-  };
+    });
+  }, [supabase]);
 
-  useEffect(() => { fetchEmployees(); }, []);
+  useEffect(() => { fetchEmployees(); }, [fetchEmployees]);
 
   const handleAdd = async () => {
     if (!form.email || !form.name || !form.password) { setMsg("Điền đầy đủ tên, email và mật khẩu"); return; }
-    if (form.password.length < 6) { setMsg("Mật khẩu tối thiểu 6 ký tự"); return; }
+    if (form.password.length < 12) { setMsg("Mật khẩu tối thiểu 12 ký tự"); return; }
     setSaving(true); setMsg("");
     try {
       const res = await fetch("/api/create-user", {
@@ -40,18 +49,22 @@ export default function EmployeesPage() {
       setForm({ name: "", email: "", phone: "", role: "EMPLOYEE", password: "" });
       setTimeout(() => { setShowAdd(false); setMsg(""); }, 1200);
       fetchEmployees();
-    } catch (e: any) { setMsg("Lỗi: " + e?.message); }
+    } catch { setMsg("Không thể tạo nhân viên. Vui lòng thử lại sau."); }
     setSaving(false);
   };
 
   const toggleStatus = async (id: string, current: string) => {
+    if (actor?.role !== "ADMIN" || actor.id === id) return;
     const newStatus = current === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-    await supabase.from("profiles").update({ status: newStatus }).eq("id", id);
+    const { data, error } = await supabase.from("profiles").update({ status: newStatus }).eq("id", id).select("id").single();
+    if (error || !data) { setError("Không đổi được trạng thái. Kiểm tra quyền truy cập."); return; }
     fetchEmployees();
   };
 
   const updateRole = async (id: string, role: string) => {
-    await supabase.from("profiles").update({ role }).eq("id", id);
+    if (actor?.role !== "ADMIN" || actor.id === id) return;
+    const { data, error } = await supabase.from("profiles").update({ role }).eq("id", id).select("id").single();
+    if (error || !data) { setError("Không đổi được quyền. Kiểm tra quyền truy cập."); return; }
     fetchEmployees();
   };
 
@@ -66,11 +79,12 @@ export default function EmployeesPage() {
           <h1 className="text-lg font-bold">Nhân viên</h1>
           <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{employees.length} nhân viên trong hệ thống</p>
         </div>
-        <button onClick={() => { setShowAdd(true); setMsg(""); }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white text-xs font-semibold hover:opacity-90">
+        <button disabled={!actor} onClick={() => { setShowAdd(true); setMsg(""); }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white text-xs font-semibold hover:opacity-90 disabled:opacity-50">
           <Plus size={12} /> Thêm
         </button>
       </div>
 
+      {error && <p role="alert" className="text-sm text-red-400 mb-3">{error}</p>}
       <div className="flex items-center gap-1.5 bg-[var(--card)] border border-[var(--border)] rounded-md px-2.5 py-1.5 mb-3 max-w-xs">
         <Search size={12} className="text-[var(--muted-foreground)]" />
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm nhân viên..." className="bg-transparent text-xs outline-none flex-1" />
@@ -105,7 +119,7 @@ export default function EmployeesPage() {
                     </div>
                   </td>
                   <td className="px-3 py-2">
-                    <select value={emp.role} onChange={e => updateRole(emp.id, e.target.value)}
+                    <select disabled={actor?.role !== "ADMIN" || actor?.id === emp.id} value={emp.role} onChange={e => updateRole(emp.id, e.target.value)}
                       className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border-none outline-none cursor-pointer ${roleColor[emp.role] || roleColor.EMPLOYEE}`}>
                       <option value="EMPLOYEE">EMPLOYEE</option>
                       <option value="LEADER">LEADER</option>
@@ -115,7 +129,7 @@ export default function EmployeesPage() {
                   <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">{emp.phone || "—"}</td>
                   <td className="px-3 py-2 text-xs text-[var(--muted-foreground)] font-mono">{emp.join_date}</td>
                   <td className="px-3 py-2">
-                    <button onClick={() => toggleStatus(emp.id, emp.status)}
+                    <button disabled={actor?.role !== "ADMIN" || actor?.id === emp.id} onClick={() => toggleStatus(emp.id, emp.status)}
                       className={`text-[10px] font-semibold px-2 py-0.5 rounded-full cursor-pointer ${emp.status === "ACTIVE" ? "bg-green-500/10 text-green-400" : "bg-zinc-500/10 text-zinc-400"}`}>
                       {emp.status === "ACTIVE" ? "Hoạt động" : "Ngưng"}
                     </button>
@@ -157,8 +171,8 @@ export default function EmployeesPage() {
                   <label className="block text-[10px] text-[var(--muted-foreground)] mb-0.5">Quyền</label>
                   <select value={form.role} onChange={e => setForm({...form, role: e.target.value})} className="w-full px-2.5 py-1.5 bg-[var(--input)] border border-[var(--border)] rounded-md text-xs">
                     <option value="EMPLOYEE">Nhân viên</option>
-                    <option value="LEADER">Leader</option>
-                    <option value="ADMIN">Admin</option>
+                    {actor?.role === "ADMIN" && <option value="LEADER">Leader</option>}
+                    {actor?.role === "ADMIN" && <option value="ADMIN">Admin</option>}
                   </select>
                 </div>
               </div>

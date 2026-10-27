@@ -1,11 +1,14 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, DollarSign, TrendingUp, Zap, Star, BarChart3, Package, Calendar, Megaphone, ShoppingBag } from "lucide-react";
+import { ArrowLeft, DollarSign, TrendingUp, Zap, Star, BarChart3, Package, Calendar, Megaphone } from "lucide-react";
 import Link from "next/link";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { DataError } from "@/components/data-error";
 import { createClient } from "@/lib/supabase";
+import { FinanceTooltip } from "@/components/finance-tooltip";
 import { formatCompact } from "@/lib/finance";
+import type { PageRecord, DailySummary, CampaignSummary } from "@/lib/data-types";
 import { type Period, getDateRange } from "@/lib/date-filter";
 
 type DailyRow = { date: string; adSpend: number; gmv: number; commission: number; orders: number; profit: number };
@@ -19,10 +22,11 @@ const periods: { k: Period; l: string }[] = [
 export default function PageDetailPage() {
   const { id } = useParams();
   const supabase = createClient();
-  const [page, setPage] = useState<any>(null);
+  const [page, setPage] = useState<PageRecord | null>(null);
   const [daily, setDaily] = useState<DailyRow[]>([]);
   const [campaigns, setCampaigns] = useState<CampRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [period, setPeriod] = useState<Period>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -31,15 +35,13 @@ export default function PageDetailPage() {
   const [tab, setTab] = useState<"daily" | "campaigns">("campaigns");
   const [onlySpend, setOnlySpend] = useState(false);
 
-  useEffect(() => { if (id && (period !== "custom" || (customFrom && customTo))) fetchData(); }, [id, period, customFrom, customTo]);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = useCallback(() => {
     const pageId = id as string;
 
     // Auth + ownership check
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    return supabase.auth.getUser().then(async ({ data: { user } }) => {
+    if (!user) { setLoadError(true); setLoading(false); return; }
     const { data: myProfile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
     const role = myProfile?.role || "EMPLOYEE";
     const isAdmin = role === "ADMIN" || role === "LEADER";
@@ -47,15 +49,16 @@ export default function PageDetailPage() {
     const { data: pageData } = await supabase.from("pages").select("*, assignee:assignee_id(name)").eq("id", pageId).single();
     if (!pageData) { setLoading(false); return; }
     if (!isAdmin && pageData.assignee_id !== user.id) { setAccessDenied(true); setLoading(false); return; }
-    setPage(pageData);
+    setPage(pageData as unknown as PageRecord);
 
     const { from, to } = getDateRange(period, customFrom, customTo);
 
     // Daily data via RPC
-    const { data: dailyData } = await supabase.rpc("get_page_daily", { p_page_id: pageId, date_from: from, date_to: to });
+    const { data: dailyData, error: dailyError } = await supabase.rpc("get_page_daily", { p_page_id: pageId, date_from: from, date_to: to });
+    if (dailyError) { setLoadError(true); setLoading(false); return; }
     if (dailyData) {
       let tAd = 0, tGmv = 0, tComm = 0, tOrd = 0;
-      const rows: DailyRow[] = dailyData.map((r: any) => {
+      const rows: DailyRow[] = dailyData.map((r: DailySummary) => {
         const ad = Number(r.ad_spend), gmv = Number(r.gmv), comm = Number(r.commission), ord = Number(r.orders);
         tAd += ad; tGmv += gmv; tComm += comm; tOrd += ord;
         return { date: String(r.report_date).slice(5), adSpend: ad, gmv, commission: comm, orders: ord, profit: comm - ad };
@@ -65,11 +68,12 @@ export default function PageDetailPage() {
     }
 
     // Campaign breakdown via RPC — with date filter
-    const { data: campData } = await supabase.rpc("get_page_campaigns", { p_page_id: pageId, date_from: from, date_to: to });
+    const { data: campData, error: campError } = await supabase.rpc("get_page_campaigns", { p_page_id: pageId, date_from: from, date_to: to });
+    if (campError) { setLoadError(true); setLoading(false); return; }
     if (campData) {
       // Merge FB + Shopee by campaign name + sub_id1
       const merged = new Map<string, { campName: string; subId1: string; adSpend: number; gmv: number; commission: number; orders: number; sources: Set<string> }>();
-      campData.forEach((r: any) => {
+      campData.forEach((r: CampaignSummary) => {
         const campName = r.campaign_name || "(không tên)";
         const sub1 = r.sub_id1 || "";
         const key = campName + "|" + sub1;
@@ -94,14 +98,15 @@ export default function PageDetailPage() {
     }
 
     setLoading(false);
-  };
+    });
+  }, [supabase, id, period, customFrom, customTo]);
+
+  useEffect(() => { if (id && (period !== "custom" || (customFrom && customTo))) fetchData(); }, [fetchData, id, period, customFrom, customTo]);
+
+  if (loadError) return <DataError onRetry={() => { setLoadError(false); setLoading(true); void fetchData(); }} />;
 
   const roi = totals.adSpend > 0 ? Math.round((totals.profit / totals.adSpend) * 1000) / 10 : null;
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload?.length) return null;
-    return (<div className="glass-card rounded-lg px-3 py-2 text-[11px] shadow-xl border border-[var(--border)]"><div className="text-[var(--muted-foreground)] font-medium mb-1">{label}</div>{payload.map((p: any, i: number) => (<div key={i} className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full" style={{ background: p.color }} /><span className="text-[var(--muted-foreground)]">{p.name}:</span><span className="font-mono font-semibold">{formatCompact(p.value)}</span></div>))}</div>);
-  };
 
   if (loading) return <div className="text-xs text-[var(--muted-foreground)] p-8 text-center">Đang tải...</div>;
   if (accessDenied) return <div className="glass-card rounded-xl border border-red-500/20 p-8 text-center"><div className="text-red-400 text-sm font-semibold mb-1">Không có quyền truy cập</div><div className="text-xs text-[var(--muted-foreground)] mb-3">Page này không được giao cho bạn.</div><Link href="/pages" className="text-xs text-[var(--accent)] hover:underline">← Quay lại Pages</Link></div>;
@@ -133,7 +138,7 @@ export default function PageDetailPage() {
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <Link href="/pages" className="w-8 h-8 rounded-lg border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)] hover:bg-[var(--muted)]"><ArrowLeft size={14} /></Link>
-        <div className="flex-1"><h1 className="text-lg font-bold">{page.name}</h1><p className="text-xs text-[var(--muted-foreground)]">{(page.assignee as any)?.name || "Chưa giao"} · {page.status}</p></div>
+        <div className="flex-1"><h1 className="text-lg font-bold">{page.name}</h1><p className="text-xs text-[var(--muted-foreground)]">{page.assignee?.name || "Chưa giao"} · {page.status}</p></div>
         <Link href="/import" className="px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white text-xs font-semibold hover:opacity-90">Upload báo cáo</Link>
       </div>
 
@@ -174,7 +179,7 @@ export default function PageDetailPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                 <XAxis dataKey="date" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={formatCompact} />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<FinanceTooltip />} />
                 <Area type="monotone" dataKey="adSpend" name="Chi Ads" stroke="#ef4444" strokeWidth={2} fill="url(#gAd)" />
                 <Area type="monotone" dataKey="commission" name="Hoa hồng" stroke="#6366f1" strokeWidth={2} fill="url(#gComm)" />
               </AreaChart>

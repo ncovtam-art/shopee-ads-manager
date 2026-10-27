@@ -1,7 +1,10 @@
 "use client";
-import { useState, useEffect } from "react";
-import { BarChart3, Download, RefreshCw, Search, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { BarChart3, Download, RefreshCw, Search } from "lucide-react";
+import { DataError } from "@/components/data-error";
 import { createClient } from "@/lib/supabase";
+import type { PageSummary } from "@/lib/data-types";
+import { csvCell } from "@/lib/csv";
 import { formatCompact } from "@/lib/finance";
 
 type PagePnl = { name: string; adSpend: number; gmv: number; commission: number; orders: number; profit: number; roi: number|null; roas: number|null };
@@ -11,18 +14,18 @@ export default function ReportsPage() {
   const supabase = createClient();
   const [data, setData] = useState<PagePnl[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("profit");
   const [sortDir, setSortDir] = useState<"asc"|"desc">("desc");
   const [filterStatus, setFilterStatus] = useState<"all"|"profit"|"loss">("all");
 
-  useEffect(() => { fetchPnl(); }, []);
 
-  const fetchPnl = async () => {
-    setLoading(true);
-    const { data: summaryData } = await supabase.rpc("get_page_summary");
+  const fetchPnl = useCallback(() => {
+    return supabase.rpc("get_page_summary").then(({ data: summaryData, error }) => {
+    if (error) { setLoadError(true); setLoading(false); return; }
     if (summaryData) {
-      const rows: PagePnl[] = summaryData.map((s: any) => {
+      const rows: PagePnl[] = summaryData.map((s: PageSummary) => {
         const ad = Number(s.total_ad_spend); const gmv = Number(s.total_gmv); const comm = Number(s.total_commission); const orders = Number(s.total_orders);
         const profit = comm - ad;
         return { name: s.page_name, adSpend: ad, gmv, commission: comm, orders, profit, roi: ad > 0 ? Math.round((profit / ad) * 1000) / 10 : null, roas: ad > 0 ? Math.round((comm / ad) * 100) / 100 : null };
@@ -30,7 +33,12 @@ export default function ReportsPage() {
       setData(rows);
     }
     setLoading(false);
-  };
+    });
+  }, [supabase]);
+
+  useEffect(() => { fetchPnl(); }, [fetchPnl]);
+
+  if (loadError) return <DataError onRetry={() => { setLoadError(false); setLoading(true); void fetchPnl(); }} />;
 
   const filtered = data.filter(r => { if (search && !r.name.toLowerCase().includes(search.toLowerCase())) return false; if (filterStatus === "profit" && r.profit <= 0) return false; if (filterStatus === "loss" && r.profit >= 0) return false; return true; })
     .sort((a, b) => { const av = a[sortBy] ?? -Infinity; const bv = b[sortBy] ?? -Infinity; if (typeof av === "string" && typeof bv === "string") return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av); return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number); });
@@ -44,9 +52,9 @@ export default function ReportsPage() {
   const exportCsv = () => {
     const h = ["Page","Chi Ads","GMV","Hoa hồng","Đơn","Lợi nhuận","ROI%","ROAS"];
     const rows = filtered.map(r => [r.name, r.adSpend, r.gmv, r.commission, r.orders, r.profit, r.roi ?? "", r.roas ?? ""]);
-    const csv = [h, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const csv = [h, ...rows].map(r => r.map(csvCell).join(",")).join("\n");
     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `pnl-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    const a = document.createElement("a"); const url = URL.createObjectURL(blob); a.href = url; a.download = `pnl-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
   };
 
   return (

@@ -1,0 +1,75 @@
+name: Main application readiness
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [fix/main-auth-readiness]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci_fixture_only_not_a_live_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm audit
+      - name: PostgreSQL security fixture (no Supabase credentials)
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGDATABASE: postgres
+          PGPASSWORD: ci_fixture_only_not_a_live_secret
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql -X -v ON_ERROR_STOP=1 \
+            -f tests/sql/bootstrap.sql \
+            -f supabase/schema.sql \
+            -f supabase/migration_v2.sql \
+            -f supabase/migration_v3.sql \
+            -f supabase/migration_v4.sql \
+            -f supabase/migration_v5_security.sql \
+            -f tests/sql/security-acceptance.sql \
+            -f supabase/migration_v6_atomic_imports.sql \
+            -f tests/sql/import-acceptance.sql \
+            -f supabase/migration_v7_atomic_page_delete.sql \
+            -f tests/sql/page-delete-acceptance.sql
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/concurrent-import.sql > /tmp/import-first.log 2>&1 &
+          first=$!
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/concurrent-import.sql > /tmp/import-second.log 2>&1 &
+          second=$!
+          wait "$first"
+          wait "$second"
+          cat /tmp/import-first.log /tmp/import-second.log
+      - run: npm run build
+      - name: HTTP auth/config fixture (no provider credentials)
+        run: |
+          node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3479 > /tmp/web-fixture.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          node scripts/http-smoke.mjs

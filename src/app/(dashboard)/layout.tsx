@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   LayoutDashboard, BarChart3, FileText, Upload, Users, Settings,
-  Search, Menu, LogOut, Bell
+  Menu, LogOut
 } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 
@@ -52,7 +52,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       if (event === "SIGNED_OUT") router.replace("/login");
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [router, supabase]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -76,7 +76,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return true;
   });
 
-  const Sidebar = () => (
+  const renderSidebar = () => (
     <aside className={`h-screen bg-[#0a0b10] border-r border-[var(--border)] flex flex-col transition-all duration-200 ${sidebarOpen ? "w-56" : "w-14"}`}>
       <div className={`flex items-center gap-2 min-h-[52px] ${sidebarOpen ? "px-3 pt-3 pb-1" : "px-2 pt-3 pb-1 justify-center"}`}>
         <button onClick={() => setSidebarOpen(!sidebarOpen)} className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#ee4d2d] to-[#ff6b47] flex items-center justify-center text-white font-extrabold text-xs shrink-0 cursor-pointer">S$</button>
@@ -117,11 +117,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <div className="hidden md:block"><Sidebar /></div>
+      <div className="hidden md:block">{renderSidebar()}</div>
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <div className="relative w-56"><Sidebar /></div>
+          <div className="relative w-56">{renderSidebar()}</div>
         </div>
       )}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">

@@ -1,10 +1,13 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { FileText, Plus, Search, X, ExternalLink, Trash2, Users, Trophy, Gift } from "lucide-react";
 import Link from "next/link";
+import { DataError } from "@/components/data-error";
 import { createClient } from "@/lib/supabase";
+import type { PageSummary } from "@/lib/data-types";
 import { formatCompact } from "@/lib/finance";
 
+type RewardConfig = { title: string; enabled: boolean; prizes: { rank: number; label: string; prize: string; color: string }[] };
 type PageRow = { id: string; name: string; status: string; assignee_id?: string; assignee_name?: string; adSpend: number; gmv: number; commission: number; orders: number; profit: number; roi: number|null; importCount: number };
 
 export default function PagesPage() {
@@ -12,38 +15,40 @@ export default function PagesPage() {
   const [pages, setPages] = useState<PageRow[]>([]);
   const [employees, setEmployees] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", facebook_uid: "", assignee_id: "" });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [operationError, setOperationError] = useState("");
   const [myRole, setMyRole] = useState("");
   const [showAssign, setShowAssign] = useState<string | null>(null);
   const [assignTo, setAssignTo] = useState("");
   const [showReward, setShowReward] = useState(true);
-  const [rewardConfig, setRewardConfig] = useState<{ title: string; enabled: boolean; prizes: { rank: number; label: string; prize: string; color: string }[] }>({ title: "🎉 Thưởng Sale 8/8", enabled: true, prizes: [{ rank: 1, label: "🥇 Top 1", prize: "100.000₫", color: "#f59e0b" }] });
+  const [rewardConfig, setRewardConfig] = useState<RewardConfig>({ title: "Chưa cấu hình phần thưởng", enabled: false, prizes: [] });
   const [showEditReward, setShowEditReward] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editPrizes, setEditPrizes] = useState<{ rank: number; label: string; prize: string; color: string }[]>([]);
 
-  useEffect(() => { fetchAll(); fetchRewardConfig(); }, []);
 
-  const fetchRewardConfig = async () => {
-    const { data } = await supabase.from("app_settings").select("value").eq("key", "reward_config").single();
-    if (data?.value) setRewardConfig(data.value as any);
-  };
+  const fetchRewardConfig = useCallback(() => {
+    return supabase.from("app_settings").select("value").eq("key", "reward_config").single().then(({ data }) => {
+    if (data?.value) setRewardConfig(data.value as RewardConfig);
+    });
+  }, [supabase]);
 
   const saveRewardConfig = async () => {
     const newConfig = { ...rewardConfig, title: editTitle, prizes: editPrizes };
-    await supabase.from("app_settings").update({ value: newConfig as any, updated_at: new Date().toISOString() }).eq("key", "reward_config");
+    const { data, error } = await supabase.from("app_settings").update({ value: newConfig, updated_at: new Date().toISOString() }).eq("key", "reward_config").select("key").single();
+    if (error || !data) { setOperationError("Không lưu được cấu hình. Kiểm tra quyền truy cập."); return; }
     setRewardConfig(newConfig);
     setShowEditReward(false);
   };
 
-  const fetchAll = async () => {
-    setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  const fetchAll = useCallback(() => {
+    return supabase.auth.getUser().then(async ({ data: { user } }) => {
+    if (!user) { setLoadError(true); setLoading(false); return; }
     const { data: myProfile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
     const role = myProfile?.role || "EMPLOYEE";
     setMyRole(role);
@@ -52,19 +57,21 @@ export default function PagesPage() {
     let pagesQuery = supabase.from("pages").select("*").order("name");
     if (!isAdmin) pagesQuery = pagesQuery.eq("assignee_id", user.id);
 
-    const [{ data: pagesData }, { data: summaryData }, { data: profiles }, { data: batchData }] = await Promise.all([
+    const results = await Promise.all([
       pagesQuery,
       supabase.rpc("get_page_summary"),
       supabase.from("profiles").select("id, name"),
       supabase.from("import_batches").select("page_id"),
     ]);
+    if (results.some(result => result.error)) { setLoadError(true); setLoading(false); return; }
+    const [{ data: pagesData }, { data: summaryData }, { data: profiles }, { data: batchData }] = results;
 
     const empMap = new Map<string, string>();
     profiles?.forEach(p => empMap.set(p.id, p.name));
-    const finMap = new Map<string, any>();
-    summaryData?.forEach((s: any) => finMap.set(s.page_id, s));
+    const finMap = new Map<string, PageSummary>();
+    summaryData?.forEach((s: PageSummary) => finMap.set(s.page_id, s));
     const importMap = new Map<string, number>();
-    batchData?.forEach((b: any) => { if (b.page_id) importMap.set(b.page_id, (importMap.get(b.page_id) || 0) + 1); });
+    batchData?.forEach((b: { page_id: string | null }) => { if (b.page_id) importMap.set(b.page_id, (importMap.get(b.page_id) || 0) + 1); });
 
     const result: PageRow[] = (pagesData || []).map(p => {
       const f = finMap.get(p.id);
@@ -77,7 +84,10 @@ export default function PagesPage() {
     setPages(result);
     setEmployees(profiles || []);
     setLoading(false);
-  };
+    });
+  }, [supabase]);
+
+  useEffect(() => { fetchAll(); fetchRewardConfig(); }, [fetchAll, fetchRewardConfig]);
 
   const handleAdd = async () => {
     if (!form.name) { setMsg("Nhập tên Page"); return; }
@@ -90,20 +100,21 @@ export default function PagesPage() {
 
   const handleAssign = async () => {
     if (!showAssign) return;
-    await supabase.from("pages").update({ assignee_id: assignTo || null }).eq("id", showAssign);
+    const { data, error } = await supabase.from("pages").update({ assignee_id: assignTo || null }).eq("id", showAssign).select("id").single();
+    if (error || !data) { setOperationError("Chưa lưu được phân công. Kiểm tra quyền truy cập."); return; }
     setShowAssign(null); setAssignTo(""); fetchAll();
   };
 
   const handleDelete = async (p: PageRow) => {
     if (!confirm(`Xoá page "${p.name}"?\n\nDữ liệu import của page này sẽ bị xoá.`)) return;
-    await supabase.from("fb_ads_data").delete().eq("page_id", p.id);
-    await supabase.from("shopee_affiliate_data").delete().eq("page_id", p.id);
-    await supabase.from("import_batches").delete().eq("page_id", p.id);
-    await supabase.from("pages").delete().eq("id", p.id);
+    const { data, error } = await supabase.rpc("delete_page_v1", { p_page_id: p.id });
+    if (error || data !== true) {
+      setOperationError("Không xóa được Page. Kiểm tra quyền hoặc các dữ liệu lịch sử còn liên kết; dữ liệu chưa được xác nhận xóa."); return;
+    }
     fetchAll();
   };
 
-  const isAdmin = myRole === "ADMIN" || myRole === "LEADER";
+  const isAdmin = myRole === "ADMIN";
   const filtered = pages.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
   const totals = filtered.reduce((a, p) => ({ ad: a.ad + p.adSpend, comm: a.comm + p.commission, profit: a.profit + p.profit, orders: a.orders + p.orders }), { ad: 0, comm: 0, profit: 0, orders: 0 });
 
@@ -124,8 +135,14 @@ export default function PagesPage() {
   });
   const leaderboard = Array.from(empProfit.values()).sort((a, b) => b.profit - a.profit);
 
+  if (loadError) return <DataError onRetry={() => { setLoadError(false); setLoading(true); void fetchAll(); }} />;
+
   return (
     <div>
+      {operationError && <div role="alert" className="fixed top-4 right-4 z-[100] max-w-sm rounded-xl bg-[var(--card)] border border-red-500/40 p-4 text-sm text-red-400">
+        <p>{operationError}</p>
+        <button className="mt-2 underline" onClick={() => setOperationError("")}>Đóng</button>
+      </div>}
       <div className="flex items-center justify-between mb-4">
         <div><h1 className="text-lg font-bold">Pages</h1><p className="text-xs text-[var(--muted-foreground)] mt-0.5">{isAdmin ? `${pages.length} page toàn hệ thống` : `${pages.length} page được giao`}</p></div>
         {isAdmin && <button onClick={() => { setShowAdd(true); setMsg(""); }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white text-xs font-semibold hover:opacity-90"><Plus size={12} /> Thêm Page</button>}

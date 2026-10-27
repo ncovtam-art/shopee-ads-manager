@@ -1,12 +1,13 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Settings, User, Shield, Database, Info } from "lucide-react";
+import { User, Info } from "lucide-react";
+import type { User as AuthUser } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase";
 
 export default function SettingsPage() {
   const supabase = createClient();
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [profile, setProfile] = useState<{ name: string; role: string; phone: string | null } | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -15,7 +16,7 @@ export default function SettingsPage() {
         supabase.from("profiles").select("*").eq("id", data.user.id).single().then(({ data: p }) => setProfile(p));
       }
     });
-  }, []);
+  }, [supabase]);
 
   return (
     <div>

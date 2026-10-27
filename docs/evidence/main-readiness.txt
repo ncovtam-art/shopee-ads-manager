@@ -1,0 +1,37 @@
+Verified on 2026-10-27; synthetic fixtures only; production unchanged.
+
+unit
+ℹ tests 31
+ℹ pass 31
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+
+HTTP Next16.4.3
+/login: PASS
+/file.svg: PASS
+/employees: PASS
+/api/finance: PASS
+/pages/fixture.csv: PASS
+/pages/fixture.png: PASS
+
+security SQL
+ PASS: signup, RLS scopes, self-promotion, identity status, profile edits and anonymous isolation
+
+atomic imports SQL
+ PASS: atomic import, duplicate retry, decimal amounts, rollback, role scope and cascade deletion
+
+concurrent imports SQL
+ PASS: concurrent clients retain exactly one batch and one detail
+ PASS: concurrent clients retain exactly one batch and one detail
+
+atomic page delete SQL
+ PASS: page delete is atomic, protects history and rejects non-admin
+
+npm ci: PASS (frozen lockfile, offline cache)
+Typecheck: PASS
+Lint: PASS (zero errors, one existing font advisory)
+Build: PASS (Next 16.4.3, 21 routes)
+Full npm audit: {"info":0,"low":0,"moderate":0,"high":0,"critical":0,"total":0}
+Idempotent v5 rerun: NOT RUN, tool request cancelled
+LIVE/provider acceptance: BLOCKED, no credentials or deploy
